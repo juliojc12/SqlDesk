@@ -26,8 +26,8 @@ webview?.addEventListener('message', (e) => {
     const p = pending.get(msg.id)
     if (!p) return
     pending.delete(msg.id)
-    const err = (msg.payload as { error?: BridgeError } | null)?.error
-    if (err) p.reject(new BridgeCallError(err))
+    const err = (msg.payload as { error?: unknown } | null)?.error
+    if (err && typeof err === 'object') p.reject(new BridgeCallError(err as BridgeError))
     else p.resolve(msg.payload)
     return
   }

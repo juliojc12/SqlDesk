@@ -16,9 +16,59 @@ export interface ErrorPayload {
   error: BridgeError
 }
 
+export interface ConnectionSettings {
+  server: string
+  database: string
+  user: string
+  connectTimeout: number
+  commandTimeout: number
+  encrypt: boolean
+  trustServerCertificate: boolean
+  advanced: Record<string, string>
+}
+
+/** A senha nunca vem do backend: só o indicador hasPassword. */
+export interface ConnectionInfo {
+  id: string
+  name: string
+  color: string
+  settings: ConnectionSettings
+  hasPassword: boolean
+}
+
+export interface SaveConnectionRequest {
+  id?: string | null
+  name: string
+  color: string
+  settings: ConnectionSettings
+  password?: string | null
+}
+
+export interface TestConnectionResult {
+  ok: boolean
+  serverVersion?: string
+  errorMessage?: string
+}
+
 // Mapa tipo -> { request, response }
 export interface Requests {
   ping: { request: { message: string }; response: { message: string; serverTime: string } }
+  'connections.list': { request: Record<string, never>; response: { connections: ConnectionInfo[] } }
+  'connections.save': { request: SaveConnectionRequest; response: ConnectionInfo }
+  'connections.delete': { request: { id: string }; response: Record<string, never> }
+  'connections.duplicate': { request: { id: string }; response: ConnectionInfo }
+  'connections.test': {
+    request: { id?: string | null; settings: ConnectionSettings; password?: string | null }
+    response: TestConnectionResult
+  }
+  'connections.parse': {
+    request: { connectionString: string }
+    response: { settings: ConnectionSettings; password?: string | null }
+  }
+  'connections.build': {
+    request: { settings: ConnectionSettings; password?: string | null }
+    response: { connectionString: string }
+  }
 }
 
 // Mapa tipo de evento -> payload
