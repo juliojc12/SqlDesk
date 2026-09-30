@@ -1,9 +1,5 @@
-﻿<Application x:Class="SqlDesk.Host.App"
+<Application x:Class="SqlDesk.Host.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:SqlDesk.Host"
-             StartupUri="MainWindow.xaml">
-    <Application.Resources>
-         
-    </Application.Resources>
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources />
 </Application>
