@@ -141,3 +141,21 @@ public class ConnectionStoreTests : IDisposable
         Assert.Equal("s3nh@ çãõ", p.Unprotect(enc));
     }
 }
+
+public class SqlErrorTranslatorTests
+{
+    [Theory]
+    [InlineData(-2146893019, "qualquer")]
+    [InlineData(0, "A cadeia de certificação foi emitida por uma autoridade que não é de confiança.")]
+    [InlineData(-1, "The certificate chain was issued by an authority that is not trusted.")]
+    public void Falha_de_certificado_vira_orientacao_sobre_TrustServerCertificate(int number, string message) =>
+        Assert.Contains("TrustServerCertificate", SqlErrorTranslator.Classify(number, message));
+
+    [Fact]
+    public void Login_invalido_e_traduzido() =>
+        Assert.Contains("usuário ou senha", SqlErrorTranslator.Classify(18456, "Login failed for user 'x'."));
+
+    [Fact]
+    public void Erro_desconhecido_nao_e_classificado() =>
+        Assert.Null(SqlErrorTranslator.Classify(9999, "outra coisa"));
+}
