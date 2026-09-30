@@ -23,6 +23,6 @@ public sealed record SaveConnectionRequest(
     ConnectionSettings Settings,
     string? Password);
 
-public sealed record TestConnectionResult(bool Ok, string? ServerVersion, string? ErrorMessage);
+public sealed record TestConnectionResult(bool Ok, string? ServerVersion, string? ErrorMessage, bool CertificateUntrusted = false);
 
 public sealed class ConnectionValidationException(string message) : Exception(message);

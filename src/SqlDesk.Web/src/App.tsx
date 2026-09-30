@@ -111,7 +111,8 @@ export default function App() {
         dispatch({ type: 'setStatus', id: tabId, status: 'needs-password', message: 'Esta conexão não tem senha salva.' })
         if (password !== undefined) setPromptError(e.detail.message)
       } else {
-        dispatch({ type: 'setStatus', id: tabId, status: 'error', message: msg(e) })
+        const untrusted = e instanceof BridgeCallError && e.detail.code === 'certificate_untrusted'
+        dispatch({ type: 'setStatus', id: tabId, status: 'error', message: msg(e), certificateUntrusted: untrusted })
         setPromptTabId((cur) => (cur === tabId ? null : cur))
       }
     }
@@ -134,6 +135,22 @@ export default function App() {
     else {
       setPromptError(undefined)
       setPromptTabId(tab.id)
+    }
+  }
+
+  /** Ação explícita do usuário no aviso da aba: grava TrustServerCertificate na conexão e reconecta. */
+  async function trustCertificateAndReconnect(tab: Tab) {
+    const conn = connById(tab.connectionId)
+    if (!conn) return
+    try {
+      await invoke('connections.save', {
+        id: conn.id, name: conn.name, color: conn.color, password: null,
+        settings: { ...conn.settings, trustServerCertificate: true },
+      })
+      await reloadConnections()
+      void connectTab(tab.id, conn.id)
+    } catch (e) {
+      setError(msg(e))
     }
   }
 
@@ -368,7 +385,15 @@ export default function App() {
                 onPickConnection={() => setPicker({ purpose: 'assign', title: 'Escolha a conexão desta aba', tabId: activeTab.id })}
               />
               {(activeTab.status === 'error' || activeTab.status === 'no-connection') && activeTab.statusMessage && (
-                <p role="alert" title={activeTab.statusMessage} className="truncate border-b border-line bg-hover px-4 py-2 text-sm">{activeTab.statusMessage}</p>
+                <div role="alert" className="flex items-center gap-4 border-b border-line bg-hover px-4 py-2 text-sm">
+                  <p title={activeTab.statusMessage} className="min-w-0 flex-1 truncate">{activeTab.statusMessage}</p>
+                  {activeTab.certificateUntrusted && (
+                    <label className="flex shrink-0 cursor-pointer items-center gap-2 font-medium">
+                      <input type="checkbox" checked={false} onChange={() => void trustCertificateAndReconnect(activeTab)} />
+                      Confiar no certificado deste servidor e reconectar
+                    </label>
+                  )}
+                </div>
               )}
               <div className="flex min-h-0 flex-1 flex-col">
                 <div className="min-h-0 flex-1 bg-surface">

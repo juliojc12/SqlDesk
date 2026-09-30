@@ -14,7 +14,7 @@ public static class ConnectionTester
         }
         catch (SqlException ex)
         {
-            return new TestConnectionResult(false, null, SqlErrorTranslator.Translate(ex));
+            return new TestConnectionResult(false, null, SqlErrorTranslator.Translate(ex), SqlErrorTranslator.IsCertificateError(ex));
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
@@ -38,9 +38,15 @@ public static partial class SqlErrorTranslator
         return Classify(ex.Number, ex.Message, ex.InnerException as System.ComponentModel.Win32Exception) ?? ex.Message;
     }
 
+    /// <summary>A falha é de confiança no certificado do servidor (o usuário pode optar por confiar).</summary>
+    public static bool IsCertificateError(SqlException ex) =>
+        ex.Errors.Cast<SqlError>().Any(e => IsCertificate(e.Number, e.Message)) || IsCertificate(ex.Number, ex.Message);
+
+    public static bool IsCertificate(int number, string message) => number == SslTrustFailure || CertificateHint().IsMatch(message);
+
     public static string? Classify(int number, string message, System.ComponentModel.Win32Exception? inner = null)
     {
-        if (number == SslTrustFailure || CertificateHint().IsMatch(message))
+        if (IsCertificate(number, message))
             return "O certificado do servidor não é confiável para este computador. Se o servidor é confiável, marque "
                  + "'TrustServerCertificate' (ou desmarque 'Encrypt'). Detalhe: " + message;
 

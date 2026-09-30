@@ -6,7 +6,10 @@ namespace SqlDesk.Core.Sessions;
 
 public sealed class PasswordRequiredException(string message) : Exception(message);
 
-public sealed class ConnectFailedException(string message, Exception inner) : Exception(message, inner);
+public sealed class ConnectFailedException(string message, Exception inner, bool certificateUntrusted = false) : Exception(message, inner)
+{
+    public bool CertificateUntrusted { get; } = certificateUntrusted;
+}
 
 public sealed record OpenSessionResult(string ServerVersion, string Database);
 
@@ -53,7 +56,7 @@ public sealed class TabSessionManager : IAsyncDisposable
         catch (SqlException ex)
         {
             await conn.DisposeAsync();
-            throw new ConnectFailedException(SqlErrorTranslator.Translate(ex), ex);
+            throw new ConnectFailedException(SqlErrorTranslator.Translate(ex), ex, SqlErrorTranslator.IsCertificateError(ex));
         }
         catch
         {

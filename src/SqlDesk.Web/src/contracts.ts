@@ -48,6 +48,8 @@ export interface TestConnectionResult {
   ok: boolean
   serverVersion?: string
   errorMessage?: string
+  /** A falha foi de confiança no certificado do servidor: o usuário pode optar por confiar nele. */
+  certificateUntrusted?: boolean
 }
 
 // Mapa tipo -> { request, response }

@@ -80,10 +80,10 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
     parseTimer.current = window.setTimeout(() => void applyString(text), 400)
   }
 
-  async function runTest() {
+  async function runTest(withSettings: ConnectionSettings = settings) {
     setTest('running')
     try {
-      setTest(await invoke('connections.test', { id: connection?.id ?? null, settings, password }))
+      setTest(await invoke('connections.test', { id: connection?.id ?? null, settings: withSettings, password }))
     } catch (e) {
       setTest({ ok: false, errorMessage: errorText(e) })
     }
@@ -171,12 +171,17 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
                   <input type="number" min={0} className={input} value={settings.commandTimeout} onChange={(e) => patch({ commandTimeout: Number(e.target.value) })} />
                 </label>
               </div>
-              <div className="flex gap-6">
+              <div className="space-y-1.5">
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={settings.encrypt} onChange={(e) => patch({ encrypt: e.target.checked })} /> Encrypt
+                  <input type="checkbox" checked={settings.encrypt} onChange={(e) => patch({ encrypt: e.target.checked })} />
+                  Criptografar a conexão <span className="text-muted">(Encrypt)</span>
                 </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={settings.trustServerCertificate} onChange={(e) => patch({ trustServerCertificate: e.target.checked })} /> TrustServerCertificate
+                <label className="flex items-start gap-2">
+                  <input className="mt-1" type="checkbox" checked={settings.trustServerCertificate} onChange={(e) => patch({ trustServerCertificate: e.target.checked })} />
+                  <span>
+                    Confiar no certificado do servidor <span className="text-muted">(TrustServerCertificate)</span>
+                    <span className="block text-xs text-muted">Marque só para servidores que você conhece, como os da rede interna. O certificado deixa de ser validado.</span>
+                  </span>
                 </label>
               </div>
               {advancedKeys.length > 0 && (
@@ -208,6 +213,23 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
             <p role="status" className={`rounded-md p-2 text-xs ${test === 'running' ? 'bg-hover' : test.ok ? 'bg-green-200 text-green-950' : 'bg-red-200 text-red-950'}`}>
               {test === 'running' ? 'Testando…' : test.ok ? `Conexão bem-sucedida. SQL Server ${test.serverVersion}` : test.errorMessage}
             </p>
+          )}
+          {test && test !== 'running' && !test.ok && test.certificateUntrusted && !settings.trustServerCertificate && (
+            <label ref={(el) => el?.scrollIntoView({ block: "nearest" })} className="flex items-start gap-2 rounded-md border border-line p-2 text-sm">
+              <input
+                className="mt-1"
+                type="checkbox"
+                checked={false}
+                onChange={() => {
+                  patch({ trustServerCertificate: true })
+                  void runTest({ ...settings, trustServerCertificate: true })
+                }}
+              />
+              <span>
+                Confiar no certificado deste servidor e testar novamente
+                <span className="block text-xs text-muted">Só faça isso se você reconhece o servidor. O certificado não será validado.</span>
+              </span>
+            </label>
           )}
           {error && <p role="alert" className="text-xs text-danger">{error}</p>}
         </div>

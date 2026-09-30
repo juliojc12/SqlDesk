@@ -13,6 +13,8 @@ export interface Tab {
   status: ConnStatus
   statusMessage?: string
   serverVersion?: string
+  /** A última falha foi de certificado não confiável: a aba oferece "confiar e reconectar". */
+  certificateUntrusted?: boolean
 }
 
 export interface TabsState {
@@ -31,7 +33,7 @@ export type TabsAction =
   | { type: 'cycle'; direction: 1 | -1 }
   | { type: 'rename'; id: string; title: string }
   | { type: 'setText'; id: string; text: string }
-  | { type: 'setStatus'; id: string; status: ConnStatus; message?: string; serverVersion?: string }
+  | { type: 'setStatus'; id: string; status: ConnStatus; message?: string; serverVersion?: string; certificateUntrusted?: boolean }
   | { type: 'setConnection'; id: string; connectionId: string | null }
   | { type: 'detachConnection'; connectionId: string }
   | { type: 'saved'; id: string; filePath: string; title: string }
@@ -83,7 +85,7 @@ export function tabsReducer(state: TabsState, a: TabsAction): TabsState {
     case 'setText':
       return patch(a.id, { text: a.text })
     case 'setStatus':
-      return patch(a.id, { status: a.status, statusMessage: a.message, serverVersion: a.serverVersion })
+      return patch(a.id, { status: a.status, statusMessage: a.message, serverVersion: a.serverVersion, certificateUntrusted: a.certificateUntrusted })
     case 'setConnection':
       return patch(a.id, { connectionId: a.connectionId, status: a.connectionId ? 'idle' : 'no-connection', statusMessage: undefined })
     case 'detachConnection':

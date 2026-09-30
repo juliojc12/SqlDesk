@@ -151,6 +151,13 @@ public class SqlErrorTranslatorTests
     public void Falha_de_certificado_vira_orientacao_sobre_TrustServerCertificate(int number, string message) =>
         Assert.Contains("TrustServerCertificate", SqlErrorTranslator.Classify(number, message));
 
+    [Theory]
+    [InlineData(-2146893019, "x", true)]
+    [InlineData(0, "A cadeia de certificação foi emitida por uma autoridade que não é de confiança.", true)]
+    [InlineData(18456, "Login failed for user 'x'.", false)]
+    public void IsCertificate_distingue_falha_de_certificado_de_outras(int number, string message, bool expected) =>
+        Assert.Equal(expected, SqlErrorTranslator.IsCertificate(number, message));
+
     [Fact]
     public void Login_invalido_e_traduzido() =>
         Assert.Contains("usuário ou senha", SqlErrorTranslator.Classify(18456, "Login failed for user 'x'."));

@@ -12,7 +12,7 @@ public sealed class OpenTabHandler(TabSessionManager sessions) : MessageHandler<
     {
         try { return await sessions.OpenAsync(r.TabId, r.ConnectionId, r.Password, ct); }
         catch (PasswordRequiredException ex) { throw new BridgeException("password_required", ex.Message); }
-        catch (ConnectFailedException ex) { throw new BridgeException("connect_failed", ex.Message); }
+        catch (ConnectFailedException ex) { throw new BridgeException(ex.CertificateUntrusted ? "certificate_untrusted" : "connect_failed", ex.Message); }
         catch (ConnectionValidationException ex) { throw new BridgeException("validation", ex.Message); }
     }
 }
