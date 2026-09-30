@@ -65,6 +65,25 @@ export interface Requests {
     request: { connectionString: string }
     response: { settings: ConnectionSettings; password?: string | null }
   }
+  'connections.disconnect': { request: { id: string }; response: Record<string, never> }
+  'tabs.open': {
+    request: { tabId: string; connectionId: string; password?: string | null }
+    response: { serverVersion: string; database: string }
+  }
+  'tabs.disconnect': { request: { tabId: string }; response: Record<string, never> }
+  'session.load': { request: Record<string, never>; response: { state?: string | null } }
+  'session.save': { request: { state: string }; response: Record<string, never> }
+  'files.save': {
+    request: { path?: string | null; suggestedName: string; content: string; saveAs: boolean }
+    response: { cancelled: boolean; path?: string; name?: string }
+  }
+  'files.open': {
+    request: Record<string, never>
+    response: { cancelled: boolean; path?: string; name?: string; content?: string }
+  }
+  'window.minimize': { request: Record<string, never>; response: Record<string, never> }
+  'window.toggleMaximize': { request: Record<string, never>; response: Record<string, never> }
+  'window.close': { request: Record<string, never>; response: Record<string, never> }
   'connections.build': {
     request: { settings: ConnectionSettings; password?: string | null }
     response: { connectionString: string }

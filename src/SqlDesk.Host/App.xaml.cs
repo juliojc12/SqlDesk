@@ -1,6 +1,7 @@
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using SqlDesk.Core.Connections;
+using SqlDesk.Core.Sessions;
 using SqlDesk.Host.Bridge;
 using SqlDesk.Host.Handlers;
 
@@ -15,22 +16,37 @@ public partial class App : Application
         base.OnStartup(e);
 
         var sc = new ServiceCollection();
-        sc.AddSingleton<IMessageHandler, PingHandler>();
+
+        // Serviços do Core
         sc.AddSingleton<IPasswordProtector, DpapiPasswordProtector>();
         sc.AddSingleton(sp => new ConnectionStore(ConnectionStore.DefaultPath, sp.GetRequiredService<IPasswordProtector>()));
-        sc.AddSingleton<IMessageHandler, ListConnectionsHandler>();
-        sc.AddSingleton<IMessageHandler, SaveConnectionHandler>();
-        sc.AddSingleton<IMessageHandler, DeleteConnectionHandler>();
-        sc.AddSingleton<IMessageHandler, DuplicateConnectionHandler>();
-        sc.AddSingleton<IMessageHandler, TestConnectionHandler>();
-        sc.AddSingleton<IMessageHandler, ParseConnectionStringHandler>();
-        sc.AddSingleton<IMessageHandler, BuildConnectionStringHandler>();
+        sc.AddSingleton<TabSessionManager>();
+        sc.AddSingleton(new SessionStateStore(SessionStateStore.DefaultPath));
+        sc.AddSingleton<WindowController>();
+
+        // Handlers da ponte
+        foreach (var handler in new[]
+        {
+            typeof(PingHandler),
+            typeof(ListConnectionsHandler), typeof(SaveConnectionHandler), typeof(DeleteConnectionHandler),
+            typeof(DuplicateConnectionHandler), typeof(TestConnectionHandler),
+            typeof(ParseConnectionStringHandler), typeof(BuildConnectionStringHandler),
+            typeof(OpenTabHandler), typeof(DisconnectTabHandler), typeof(DisconnectConnectionHandler),
+            typeof(LoadSessionStateHandler), typeof(SaveSessionStateHandler),
+            typeof(SaveFileHandler), typeof(OpenFileHandler),
+            typeof(MinimizeWindowHandler), typeof(ToggleMaximizeWindowHandler), typeof(CloseWindowHandler),
+        })
+        {
+            sc.AddSingleton(typeof(IMessageHandler), handler);
+        }
+
         sc.AddSingleton<MessageDispatcher>();
         sc.AddSingleton<WebViewBridge>();
         sc.AddSingleton<MainWindow>();
         _services = sc.BuildServiceProvider();
 
-        _services.GetRequiredService<MainWindow>().Show();
+        MainWindow = _services.GetRequiredService<MainWindow>();
+        MainWindow.Show();
     }
 
     protected override void OnExit(ExitEventArgs e)

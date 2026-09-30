@@ -22,3 +22,9 @@ Cliente desktop leve para consultar bancos SQL Server (Windows). Host .NET 8 + W
 - **Timeout de comando** não é uma palavra-chave suportada de forma portável na connection string: fica só no campo e é aplicado ao `SqlCommand`. Se vier `Command Timeout` na string colada, é lido para o campo.
 - **`connections.json` corrompido:** o app mostra o erro e não sobrescreve o arquivo.
 - **Conectar/desconectar e "nova query" com duplo clique** dependem das sessões por aba e entram na fase 3; nesta fase o duplo clique abre a edição.
+- **Aparência (fase 3):** `model-app.png` é a referência visual. O título exibido é "SqlLite Studio" (como no mockup); `SqlDesk` segue como nome interno dos projetos. Tema escuro/claro por tokens CSS (`index.css`), seguindo o sistema.
+- **Janela sem moldura:** a barra de título é desenhada pelo frontend (`app-region: drag`); ao maximizar, a janela respeita a área de trabalho do monitor (não cobre a barra de tarefas).
+- **Sessões por aba:** uma `SqlConnection` por aba, aberta ao exibir a aba ativa (as demais conectam quando ativadas). Na restauração das abas só se reconecta sozinho quando a senha está salva; sem senha salva o app pergunta (a senha digitada fica só em memória, até fechar o app).
+- **Monaco offline:** o editor é empacotado no próprio build (sem CDN), versão fixada em 0.52.2.
+- **Salvar `.sql`:** UTF-8 com BOM, para abrir com acentos corretos no SSMS e no Bloco de Notas.
+- **Abas e texto:** o estado das abas (incluindo texto não salvo) fica em `%APPDATA%\SqlDesk\session.json`.

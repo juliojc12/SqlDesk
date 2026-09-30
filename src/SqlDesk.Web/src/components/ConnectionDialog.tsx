@@ -3,13 +3,14 @@ import { BridgeCallError, invoke } from '../bridge'
 import { PALETTE } from '../colors'
 import type { ConnectionInfo, ConnectionSettings, TestConnectionResult } from '../contracts'
 import { ColorPicker } from './ColorPicker'
+import { btnBase, btnPrimary, Modal } from './Modal'
 
 const EMPTY: ConnectionSettings = {
   server: '', database: '', user: '', connectTimeout: 15, commandTimeout: 30,
   encrypt: true, trustServerCertificate: false, advanced: {},
 }
 
-const input = 'w-full rounded-md border border-neutral-300 bg-white px-2 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-900'
+const input = 'w-full rounded-md border border-line bg-input px-2 py-1.5 text-sm'
 
 function errorText(e: unknown): string {
   return e instanceof BridgeCallError ? e.detail.message : String(e)
@@ -103,9 +104,9 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
   const advancedKeys = Object.keys(settings.advanced)
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40" onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-      <div role="dialog" aria-modal className="flex max-h-[90vh] w-[560px] flex-col rounded-lg border border-neutral-300 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-800">
-        <h2 className="border-b border-neutral-200 px-5 py-3 text-base font-semibold dark:border-neutral-700">
+    <Modal title={connection ? 'Editar conexão' : 'Nova conexão'} onCancel={onClose} width={560}>
+      <div className="flex max-h-[90vh] flex-col">
+        <h2 className="border-b border-line px-5 py-3 text-base font-semibold">
           {connection ? 'Editar conexão' : 'Nova conexão'}
         </h2>
 
@@ -119,14 +120,14 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
             <ColorPicker value={color} onChange={setColor} />
           </div>
 
-          <div role="tablist" className="flex gap-4 border-b border-neutral-200 dark:border-neutral-700">
+          <div role="tablist" className="flex gap-4 border-b border-line">
             {([['fields', 'Campos'], ['string', 'Connection string']] as const).map(([k, label]) => (
               <button
                 key={k}
                 role="tab"
                 aria-selected={tab === k}
                 onClick={() => void switchTab(k)}
-                className={`-mb-px border-b-2 px-1 py-1.5 ${tab === k ? 'border-blue-600 font-medium' : 'border-transparent text-neutral-500'}`}
+                className={`-mb-px border-b-2 px-1 py-1.5 ${tab === k ? 'border-blue-600 font-medium' : 'border-transparent text-muted'}`}
               >
                 {label}
               </button>
@@ -136,7 +137,7 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
           {tab === 'fields' ? (
             <div className="space-y-3">
               <label className="block">
-                Servidor <span className="text-neutral-500">(host ou host,porta)</span>
+                Servidor <span className="text-muted">(host ou host,porta)</span>
                 <input className={input} value={settings.server} onChange={(e) => patch({ server: e.target.value })} />
               </label>
               <label className="block">
@@ -179,7 +180,7 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
                 </label>
               </div>
               {advancedKeys.length > 0 && (
-                <div className="rounded-md bg-neutral-100 p-2 text-xs dark:bg-neutral-900">
+                <div className="rounded-md bg-hover p-2 text-xs">
                   <div className="mb-1 font-medium">Opções avançadas (preservadas)</div>
                   {advancedKeys.map((k) => (
                     <div key={k} className="font-mono">{k}={settings.advanced[k]}</div>
@@ -195,8 +196,8 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
                 value={connString}
                 onChange={(e) => onStringChange(e.target.value)}
               />
-              {stringError && <p className="mt-1 text-xs text-red-600">{stringError}</p>}
-              <p className="mt-1 text-xs text-neutral-500">
+              {stringError && <p className="mt-1 text-xs text-danger">{stringError}</p>}
+              <p className="mt-1 text-xs text-muted">
                 {connection?.hasPassword && !password && 'A senha salva não é exibida. Deixe sem Password para mantê-la. '}
                 O timeout de comando não faz parte da connection string; ajuste-o na aba Campos.
               </p>
@@ -204,24 +205,24 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
           )}
 
           {test && (
-            <p role="status" className={`rounded-md p-2 text-xs ${test === 'running' ? 'bg-neutral-100 dark:bg-neutral-900' : test.ok ? 'bg-green-100 text-green-900' : 'bg-red-100 text-red-900'}`}>
+            <p role="status" className={`rounded-md p-2 text-xs ${test === 'running' ? 'bg-hover' : test.ok ? 'bg-green-200 text-green-950' : 'bg-red-200 text-red-950'}`}>
               {test === 'running' ? 'Testando…' : test.ok ? `Conexão bem-sucedida. SQL Server ${test.serverVersion}` : test.errorMessage}
             </p>
           )}
-          {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
+          {error && <p role="alert" className="text-xs text-danger">{error}</p>}
         </div>
 
-        <div className="flex items-center justify-between border-t border-neutral-200 px-5 py-3 dark:border-neutral-700">
-          <button onClick={() => void runTest()} disabled={test === 'running'} className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-600">
+        <div className="flex items-center justify-between border-t border-line px-5 py-3">
+          <button onClick={() => void runTest()} disabled={test === 'running'} className={btnBase}>
             Testar conexão
           </button>
           <div className="flex gap-2">
-            <button onClick={onClose} className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-600">Cancelar</button>
-            <button onClick={() => void save()} disabled={saving} className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700">Salvar</button>
+            <button onClick={onClose} className={btnBase}>Cancelar</button>
+            <button onClick={() => void save()} disabled={saving} className={btnPrimary}>Salvar</button>
           </div>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 

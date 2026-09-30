@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { btnBase, btnDanger, btnPrimary, Modal } from './Modal'
 
 interface Props {
   title: string
@@ -9,30 +10,22 @@ interface Props {
   onCancel: () => void
 }
 
-/** Modal de confirmação: o botão seguro (Cancelar) recebe o foco, para que um Enter distraído não confirme. */
+/** Confirmação: o botão seguro (Cancelar) recebe o foco, para que um Enter distraído não confirme. */
 export function ConfirmDialog({ title, children, confirmLabel, danger, onConfirm, onCancel }: Props) {
   const cancelRef = useRef<HTMLButtonElement>(null)
-  useEffect(() => cancelRef.current?.focus(), [])
+  useEffect(() => {
+    cancelRef.current?.focus()
+  }, [])
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onKeyDown={(e) => e.key === 'Escape' && onCancel()}
-    >
-      <div role="alertdialog" aria-modal className="w-96 rounded-lg border border-neutral-300 bg-white p-5 shadow-xl dark:border-neutral-700 dark:bg-neutral-800">
+    <Modal title={title} onCancel={onCancel} role="alertdialog">
+      <div className="p-5">
         <h2 className="text-base font-semibold">{title}</h2>
-        <div className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">{children}</div>
+        <div className="mt-2 text-sm text-muted">{children}</div>
         <div className="mt-5 flex justify-end gap-2">
-          <button ref={cancelRef} onClick={onCancel} className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-600">
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`rounded-md px-3 py-1.5 text-sm text-white ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
-          >
-            {confirmLabel}
-          </button>
+          <button ref={cancelRef} onClick={onCancel} className={btnBase}>Cancelar</button>
+          <button onClick={onConfirm} className={danger ? btnDanger : btnPrimary}>{confirmLabel}</button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

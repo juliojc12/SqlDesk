@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
 using SqlDesk.Host.Bridge;
+using SqlDesk.Host.Handlers;
 
 namespace SqlDesk.Host;
 
@@ -9,11 +10,20 @@ public partial class MainWindow : Window
 {
     private readonly WebViewBridge _bridge;
 
-    public MainWindow(WebViewBridge bridge)
+    public MainWindow(WebViewBridge bridge, WindowController controller)
     {
         _bridge = bridge;
+        controller.Attach(this);
         InitializeComponent();
+        StateChanged += OnStateChanged;
+        SourceInitialized += (_, _) => WorkAreaHook.Install(this);
         Loaded += async (_, _) => await InitWebAsync();
+    }
+
+    private void OnStateChanged(object? sender, EventArgs e)
+    {
+        var maximized = WindowState == WindowState.Maximized;
+        _bridge.Publish("window.state", new WindowStateEvent(maximized));
     }
 
     private async Task InitWebAsync()
@@ -27,6 +37,8 @@ public partial class MainWindow : Window
             var core = Web.CoreWebView2;
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
             core.Settings.IsStatusBarEnabled = false;
+            core.Settings.AreDefaultContextMenusEnabled = false;
+            core.Settings.IsNonClientRegionSupportEnabled = true; // CSS app-region: drag
             _bridge.Attach(core);
 
             var devUrl = Environment.GetEnvironmentVariable("SQLDESK_DEV_URL");
@@ -46,7 +58,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Não foi possível iniciar o WebView2:\n\n" + ex.Message, "SqlDesk", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, "Não foi possível iniciar o WebView2:\n\n" + ex.Message, "SqlLite Studio", MessageBoxButton.OK, MessageBoxImage.Error);
             Close();
         }
     }

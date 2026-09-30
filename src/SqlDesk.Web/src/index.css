@@ -1,4 +1,99 @@
 @import "tailwindcss";
 
-:root { font-family: "Segoe UI Variable", "Segoe UI", sans-serif; }
-body { margin: 0; }
+/* Tokens de tema. Escuro segue o mockup (model-app.png); claro é o equivalente. */
+:root {
+  --app: #f4f4f4;
+  --surface: #ffffff;
+  --sidebar: #efefef;
+  --line: #d9d9d9;
+  --fg: #1b1b1b;
+  --muted: #666666;
+  --hover: #e6e6e6;
+  --selected: #e0e0e0;
+  --input: #ffffff;
+  --overlay: rgb(0 0 0 / 0.35);
+  --danger: #c42b1c;
+  --warn-bg: #fde7c7;
+  --warn-fg: #6b3b00;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --app: #151515;
+    --surface: #1c1c1c;
+    --sidebar: #171717;
+    --line: #2e2e2e;
+    --fg: #e8e8e8;
+    --muted: #8c8c8c;
+    --hover: #262626;
+    --selected: #212121;
+    --input: #121212;
+    --overlay: rgb(0 0 0 / 0.6);
+    --danger: #ff6b5e;
+    --warn-bg: #fbe6cc;
+    --warn-fg: #5a3200;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --app: #151515;
+  --surface: #1c1c1c;
+  --sidebar: #171717;
+  --line: #2e2e2e;
+  --fg: #e8e8e8;
+  --muted: #8c8c8c;
+  --hover: #262626;
+  --selected: #212121;
+  --input: #121212;
+  --overlay: rgb(0 0 0 / 0.6);
+  --danger: #ff6b5e;
+  --warn-bg: #fbe6cc;
+  --warn-fg: #5a3200;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-app: var(--app);
+  --color-surface: var(--surface);
+  --color-sidebar: var(--sidebar);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-input: var(--input);
+  --color-overlay: var(--overlay);
+  --color-danger: var(--danger);
+  --font-ui: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+}
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--app);
+  color: var(--fg);
+  font-family: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  overflow: hidden;
+  user-select: none;
+}
+
+input, textarea { user-select: text; }
+
+.icon {
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  font-size: 14px;
+  line-height: 1;
+  font-weight: normal;
+}
+
+.drag { app-region: drag; -webkit-app-region: drag; }
+.no-drag { app-region: no-drag; -webkit-app-region: no-drag; }
+
+.thin-scroll { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+
+:focus-visible { outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent); outline-offset: 1px; }
