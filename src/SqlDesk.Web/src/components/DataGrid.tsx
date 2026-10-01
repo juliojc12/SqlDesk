@@ -128,6 +128,13 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
     else if (top + ROW_H > el.scrollTop + el.clientHeight - HEADER_H) el.scrollTop = top + ROW_H - el.clientHeight + HEADER_H
   }
 
+  /** Seleciona todas as linhas da coluna (em posição de exibição); com Shift, estende a partir da coluna já selecionada. */
+  function selectColumn(position: number, extend: boolean) {
+    if (total === 0) return
+    setSel((cur) => ({ anchor: { r: 0, c: extend && cur ? cur.anchor.c : position }, focus: { r: total - 1, c: position } }))
+    scroller.current?.focus()
+  }
+
   function onKeyDown(e: React.KeyboardEvent) {
     const key = e.key.toLowerCase()
     if (e.ctrlKey && key === 'c') {
@@ -205,16 +212,19 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
             <div style={{ width: ROWNUM_W }} className="shrink-0 border-r border-line" />
             {colOrder.map((c, p) => {
               const key = sort.findIndex((k) => k.col === c)
+              const colSelected = !!rect && total > 0 && rect.r0 === 0 && rect.r1 === total - 1 && p >= rect.c0 && p <= rect.c1
               return (
                 <div
                   key={c}
                   role="columnheader"
                   aria-sort={key < 0 ? 'none' : sort[key].dir === 'asc' ? 'ascending' : 'descending'}
                   draggable
-                  title={`${columns[c].name} (${columns[c].typeName})`}
-                  style={{ width: widths[c] }}
-                  className="relative flex shrink-0 cursor-pointer items-center gap-1 border-r border-line px-2 hover:bg-hover"
-                  onClick={(e) => setSort((s) => nextSort(s, c, e.shiftKey))}
+                  title={`${columns[c].name} (${columns[c].typeName}) — clique para selecionar a coluna`}
+                  aria-selected={colSelected}
+                  className={`relative flex shrink-0 cursor-pointer items-center gap-1 border-r border-line pl-2 pr-1 hover:bg-hover ${colSelected ? 'bg-selected' : ''}`}
+                  style={{ width: widths[c], ...(colSelected ? { boxShadow: `inset 0 -2px 0 ${color}` } : {}) }}
+                  // Clicar no título seleciona a coluna inteira (Shift estende até esta coluna); a ordenação fica na setinha.
+                  onClick={(e) => selectColumn(p, e.shiftKey)}
                   onDragStart={(e) => {
                     dragFrom.current = p
                     e.dataTransfer.effectAllowed = 'move'
@@ -227,12 +237,20 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
                   }}
                 >
                   <span className="min-w-0 flex-1 truncate">{columns[c].name}</span>
-                  {key >= 0 && (
-                    <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-muted">
-                      {sort.length > 1 && <span>{key + 1}</span>}
-                      <span aria-hidden>{sort[key].dir === 'asc' ? '▲' : '▼'}</span>
-                    </span>
-                  )}
+                  <button
+                    type="button"
+                    draggable={false}
+                    aria-label={`Ordenar por ${columns[c].name}`}
+                    title="Ordenar: crescente, decrescente e original (Shift: várias colunas)"
+                    className={`flex h-6 shrink-0 items-center gap-0.5 rounded px-1 text-[11px] hover:bg-selected ${key >= 0 ? 'text-fg' : 'text-muted opacity-40 hover:opacity-100'}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSort((cur) => nextSort(cur, c, e.shiftKey))
+                    }}
+                  >
+                    {key >= 0 && sort.length > 1 && <span>{key + 1}</span>}
+                    <span aria-hidden>{key >= 0 && sort[key].dir === 'desc' ? '▼' : '▲'}</span>
+                  </button>
                   <span
                     role="separator"
                     aria-orientation="vertical"
