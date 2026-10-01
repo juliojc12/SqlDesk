@@ -6,9 +6,11 @@ namespace SqlDesk.Host.Bridge;
 public sealed class MessageDispatcher
 {
     private readonly Dictionary<string, IMessageHandler> _handlers;
+    private readonly SqlDesk.Core.Diagnostics.ErrorLog? _log;
 
-    public MessageDispatcher(IEnumerable<IMessageHandler> handlers)
+    public MessageDispatcher(IEnumerable<IMessageHandler> handlers, SqlDesk.Core.Diagnostics.ErrorLog? log = null)
     {
+        _log = log;
         _handlers = new Dictionary<string, IMessageHandler>(StringComparer.Ordinal);
         foreach (var h in handlers)
         {
@@ -41,7 +43,9 @@ public sealed class MessageDispatcher
         }
         catch (Exception ex)
         {
-            return new { error = new BridgeError("internal_error", ex.Message) };
+            // Erro que nenhum handler previu: vai para o log (só tipo, mensagem e stack) e o usuário recebe a mensagem, não uma exceção crua.
+            _log?.Write($"Handler '{type}'", ex);
+            return new { error = new BridgeError("internal_error", $"Erro inesperado: {ex.Message}") };
         }
     }
 }

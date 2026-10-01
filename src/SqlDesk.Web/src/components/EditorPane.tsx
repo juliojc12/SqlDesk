@@ -1,13 +1,11 @@
 import Editor from '@monaco-editor/react'
 import '../monacoSetup'
-import type { Theme } from '../useTheme'
 
 export const modelPath = (tabId: string) => `inmemory://sqldesk/${tabId}.sql`
 
 interface Props {
   tabId: string
   initialText: string
-  theme: Theme
   onChange: (text: string) => void
 }
 
@@ -15,14 +13,14 @@ interface Props {
  * Uma única instância do Monaco; cada aba tem o seu modelo (mantém desfazer e posição do cursor ao alternar).
  * O texto é a verdade do modelo; o React só o acompanha via onChange.
  */
-export function EditorPane({ tabId, initialText, theme, onChange }: Props) {
+export function EditorPane({ tabId, initialText, onChange }: Props) {
   return (
     <Editor
       height="100%"
       path={modelPath(tabId)}
       defaultLanguage="sql"
       defaultValue={initialText}
-      theme={theme === 'dark' ? 'sqldesk-dark' : 'sqldesk-light'}
+      theme="sqldesk-dark"
       keepCurrentModel
       onChange={(v) => onChange(v ?? '')}
       loading={<div className="p-4 text-sm text-muted">Carregando editor…</div>}

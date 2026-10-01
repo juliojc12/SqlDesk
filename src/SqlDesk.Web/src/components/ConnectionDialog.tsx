@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { BridgeCallError, invoke } from '../bridge'
 import { PALETTE } from '../colors'
+import { getDefaultCommandTimeout } from '../settings'
 import type { ConnectionInfo, ConnectionSettings, TestConnectionResult } from '../contracts'
 import { ColorPicker } from './ColorPicker'
 import { btnBase, btnPrimary, Modal } from './Modal'
 
-const EMPTY: ConnectionSettings = {
-  server: '', database: '', user: '', connectTimeout: 15, commandTimeout: 30,
+const emptySettings = (): ConnectionSettings => ({
+  server: '', database: '', user: '', connectTimeout: 15, commandTimeout: getDefaultCommandTimeout(),
   encrypt: true, trustServerCertificate: false, advanced: {},
-}
+})
 
 const input = 'w-full rounded-md border border-line bg-input px-2 py-1.5 text-sm'
 
@@ -26,7 +27,7 @@ interface Props {
 export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }: Props) {
   const [name, setName] = useState(connection?.name ?? '')
   const [color, setColor] = useState(connection?.color ?? defaultColor)
-  const [settings, setSettings] = useState<ConnectionSettings>(connection?.settings ?? EMPTY)
+  const [settings, setSettings] = useState<ConnectionSettings>(connection?.settings ?? emptySettings())
   const [password, setPassword] = useState('')
   const [tab, setTab] = useState<'fields' | 'string'>('fields')
   const [connString, setConnString] = useState('')

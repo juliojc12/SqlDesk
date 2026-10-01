@@ -34,20 +34,4 @@ monaco.editor.defineTheme('sqldesk-dark', {
   },
 })
 
-monaco.editor.defineTheme('sqldesk-light', {
-  base: 'vs',
-  inherit: true,
-  rules: [
-    { token: 'keyword.sql', foreground: '0451A5' },
-    { token: 'string.sql', foreground: 'A31515' },
-    { token: 'number.sql', foreground: '098658' },
-    { token: 'comment.sql', foreground: '008000' },
-    { token: 'predefined.sql', foreground: '795E26' },
-  ],
-  colors: {
-    'editor.background': '#FFFFFF',
-    'editor.lineHighlightBackground': '#F5F5F5',
-  },
-})
-
 export { monaco }

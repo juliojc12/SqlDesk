@@ -155,7 +155,7 @@ public sealed class ExportRerunHandler(ExportRegistry registry, QueryRunner runn
     }
 }
 
-public sealed class ExportCancelHandler(ExportRegistry registry, QueryRunner runner) : MessageHandler<ExportCancelRequest, EmptyResponse>
+public sealed class ExportCancelHandler(ExportRegistry registry) : MessageHandler<ExportCancelRequest, EmptyResponse>
 {
     public override string Type => "export.cancel";
 

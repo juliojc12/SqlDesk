@@ -254,7 +254,7 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
                 key={r}
                 role="row"
                 aria-rowindex={r + 1}
-                style={{ position: 'absolute', top: HEADER_H + r * ROW_H, height: ROW_H, width: totalW }}
+                style={{ position: 'absolute', top: HEADER_H + r * ROW_H, height: ROW_H, width: totalW, backgroundColor: r % 2 === 1 ? 'var(--stripe)' : undefined }}
                 className="flex border-b border-line/60 text-[14px]"
               >
                 <div

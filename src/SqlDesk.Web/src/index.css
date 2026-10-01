@@ -1,43 +1,7 @@
 @import "tailwindcss";
 
-/* Tokens de tema. Escuro segue o mockup (model-app.png); claro é o equivalente. */
+/* Tema único: escuro, como no mockup (model-app.png). */
 :root {
-  --app: #f4f4f4;
-  --surface: #ffffff;
-  --sidebar: #efefef;
-  --line: #d9d9d9;
-  --fg: #1b1b1b;
-  --muted: #666666;
-  --hover: #e6e6e6;
-  --selected: #e0e0e0;
-  --input: #ffffff;
-  --overlay: rgb(0 0 0 / 0.35);
-  --danger: #c42b1c;
-  --warn-bg: #fde7c7;
-  --warn-fg: #6b3b00;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --app: #151515;
-    --surface: #1c1c1c;
-    --sidebar: #171717;
-    --line: #2e2e2e;
-    --fg: #e8e8e8;
-    --muted: #8c8c8c;
-    --hover: #262626;
-    --selected: #212121;
-    --input: #121212;
-    --overlay: rgb(0 0 0 / 0.6);
-    --danger: #ff6b5e;
-    --warn-bg: #fbe6cc;
-    --warn-fg: #5a3200;
-    color-scheme: dark;
-  }
-}
-
-:root[data-theme="dark"] {
   --app: #151515;
   --surface: #1c1c1c;
   --sidebar: #171717;
@@ -51,6 +15,8 @@
   --danger: #ff6b5e;
   --warn-bg: #fbe6cc;
   --warn-fg: #5a3200;
+  /* Listras da grade de resultados: bem sutis, só o suficiente para acompanhar uma linha com o olho. */
+  --stripe: rgb(255 255 255 / 0.028);
   color-scheme: dark;
 }
 

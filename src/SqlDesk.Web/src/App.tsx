@@ -25,11 +25,11 @@ import { quoteIfNeeded } from './suggest'
 import { applyMetadata, getMeta, patchMeta, setTabConnection, useMeta } from './metadataStore'
 import type { MetaObject } from './metadataIndex'
 import { monaco } from './monacoSetup'
-import { getAutoAlias, getCsvDelimiter, setAutoAlias } from './settings'
+import { SettingsDialog } from './components/SettingsDialog'
+import { getAutoAlias, getCsvDelimiter, getMaxRows, loadSettings, saveSettings, type AppSettings } from './settings'
 import { beginRun, failRun, finishRun, type ResultSet } from './results'
 import { clearResults, getResults, listenToQueryEvents, updateResults, useTabResults } from './resultsStore'
 import { deserialize, initialTabsState, isDirty, serialize, tabsReducer, type Tab } from './tabsState'
-import { useTheme } from './useTheme'
 
 const msg = (e: unknown) => (e instanceof BridgeCallError ? e.detail.message : String(e))
 
@@ -72,7 +72,6 @@ type RunMode = 'current' | 'script'
 type Picker = { purpose: 'new-tab' | 'open-file' | 'assign'; title: string; file?: { path: string; name: string; content: string }; tabId?: string }
 
 export default function App() {
-  const theme = useTheme()
   const [connections, setConnections] = useState<ConnectionInfo[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [tabsState, dispatch] = useReducer(tabsReducer, initialTabsState)
@@ -97,6 +96,7 @@ export default function App() {
   const [exportChoice, setExportChoice] = useState<{ format: 'csv' | 'xlsx'; set: ResultSet; view: GridView } | null>(null)
   const [exportJob, setExportJob] = useState<ExportJob | null>(null)
   const [autoAlias, setAutoAliasState] = useState(getAutoAlias)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState<{ message: string; run: () => Promise<void> } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(() => loadNumber('sidebarWidth', 260))
@@ -160,6 +160,12 @@ export default function App() {
       setGuardDlg((g) => (g?.tabId === p.tabId ? null : g))
       setNotice(p.message)
     })
+    // Promessa rejeitada sem tratamento (falha inesperada de uma chamada): aviso em vez de falha silenciosa.
+    const onRejection = (e: PromiseRejectionEvent) => {
+      e.preventDefault()
+      setError(`Erro inesperado: ${msg(e.reason)}`)
+    }
+    window.addEventListener('unhandledrejection', onRejection)
     const offClose = on<AppCloseRequestedEvent>('app.closeRequested', (p) => setAppClose(p.tabs))
     const offExport = on<ExportProgressEvent>('export.progress', (p) =>
       setExportJob((j) => (j && j.id === p.exportId && j.status === 'running' ? { ...j, rows: p.rows } : j)),
@@ -169,6 +175,7 @@ export default function App() {
       else void loadMetadata(p.connectionId)
     })
     return () => {
+      window.removeEventListener('unhandledrejection', onRejection)
       offExport()
       offMeta()
       offResults()
@@ -217,10 +224,7 @@ export default function App() {
   }
 
   function toggleAutoAlias() {
-    setAutoAliasState((on) => {
-      setAutoAlias(!on)
-      return !on
-    })
+    setAutoAliasState(saveSettings({ ...loadSettings(), autoAlias: !autoAlias }).autoAlias)
   }
 
   // ---------- Persistência das abas (com debounce) ----------
@@ -332,6 +336,7 @@ export default function App() {
       const r = await invoke('query.execute', {
         tabId: tab.id, executionId, ...snap, mode,
         noRowLimit: opts.noRowLimit ?? false,
+        maxRows: getMaxRows(),
         confirmDangerous: opts.confirmDangerous ?? false,
         skipTranAdvice: opts.skipTranAdvice ?? l.noAdvice.has(tab.id),
       })
@@ -607,6 +612,7 @@ export default function App() {
       else if (k === 's') run(() => l.activeTab && void l.saveTab(l.activeTab, e.shiftKey))
       else if (k === 'o') run(() => void l.openFile())
       else if (k === 'b') run(() => setSidebarOpen((o) => !o))
+      else if (k === ',') run(() => setSettingsOpen(true))
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
@@ -656,7 +662,7 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col bg-app text-fg">
-      <TitleBar onToggleSidebar={() => setSidebarOpen((o) => !o)} />
+      <TitleBar onToggleSidebar={() => setSidebarOpen((o) => !o)} onOpenSettings={() => setSettingsOpen(true)} />
       <div className="flex min-h-0 flex-1">
         {sidebarOpen && (
           <>
@@ -760,7 +766,6 @@ export default function App() {
                   <EditorPane
                     tabId={activeTab.id}
                     initialText={activeTab.text}
-                    theme={theme}
                     onChange={(text) => {
                       dispatch({ type: 'setText', id: activeTab.id, text })
                       // O texto mudou: a recomendação (que guarda o trecho antigo) deixa de valer.
@@ -844,6 +849,18 @@ export default function App() {
           onDismiss={() => setExportJob(null)}
           onOpenFile={() => exportJob.path && void invoke('export.openFile', { path: exportJob.path }).catch((e) => setError(msg(e)))}
           onShowFolder={() => exportJob.path && void invoke('export.showInFolder', { path: exportJob.path }).catch((e) => setError(msg(e)))}
+        />
+      )}
+      {settingsOpen && (
+        <SettingsDialog
+          settings={loadSettings()}
+          onCancel={() => setSettingsOpen(false)}
+          onSave={(s: AppSettings) => {
+            const saved = saveSettings(s)
+            setAutoAliasState(saved.autoAlias)
+            setSettingsOpen(false)
+            setNotice('Configurações salvas.')
+          }}
         />
       )}
       {danger && (

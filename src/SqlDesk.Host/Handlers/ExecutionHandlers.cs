@@ -90,7 +90,7 @@ public sealed class ExecuteHandler(
                 {
                     hub.Publish("query.started", new QueryStartedEvent(r.TabId, r.ExecutionId, danger.Highlight));
                     foreach (var w in danger.Warnings) sink.Message(MessageKinds.Info, $"Aviso: {w}", null);
-                    var outcome = await guard.RunAsync(r.TabId, r.ExecutionId, danger, r.NoRowLimit ? null : ResultStreamer.DefaultMaxRows, sink, ct);
+                    var outcome = await guard.RunAsync(r.TabId, r.ExecutionId, danger, RowLimits.Resolve(r.MaxRows, r.NoRowLimit), sink, ct);
                     await notifier.RefreshAsync(r.TabId);
                     return new ExecuteResponse(outcome.Status, outcome.ElapsedMs, outcome.TotalRows, null, null, danger.Range, outcome.Pending);
                 }
@@ -105,7 +105,7 @@ public sealed class ExecuteHandler(
                     foreach (var w in run.Warnings) sink.Message(MessageKinds.Info, $"Aviso: {w}", null);
                     var summary = await runner.RunAsync(
                         r.TabId, run.Batches, run.BaseOffset, run.BaseLine,
-                        r.NoRowLimit ? null : ResultStreamer.DefaultMaxRows, sink, ct);
+                        RowLimits.Resolve(r.MaxRows, r.NoRowLimit), sink, ct);
                     await notifier.RefreshAsync(r.TabId);
                     return new ExecuteResponse(summary.Status, summary.ElapsedMs, summary.TotalRows, null, null);
                 }

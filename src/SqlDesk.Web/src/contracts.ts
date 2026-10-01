@@ -81,6 +81,8 @@ export interface ExecuteRequest {
   /** current = seleção ou statement sob o cursor; script = documento inteiro. */
   mode: 'current' | 'script'
   noRowLimit: boolean
+  /** Limite de linhas da grade (configuração do usuário); o backend o ajusta à faixa permitida. */
+  maxRows?: number
   /** Resposta à primeira confirmação: executa dentro de uma transação, com a segunda confirmação depois. */
   confirmDangerous?: boolean
   /** O usuário escolheu "Executar assim mesmo" (ou "Não perguntar nesta aba") na barra de recomendação. */

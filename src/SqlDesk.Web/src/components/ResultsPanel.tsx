@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { identityView, type GridView } from '../exporter'
-import { getCsvDelimiter, setCsvDelimiter, type CsvDelimiter } from '../settings'
+import { getCsvDelimiter } from '../settings'
 import { MESSAGES_TAB, type ResultSet, type TabResults } from '../results'
 import { DataGrid } from './DataGrid'
 
@@ -53,7 +53,6 @@ function Messages({ results, onJumpToLine }: Pick<Props, 'results' | 'onJumpToLi
 
 export function ResultsPanel({ results, color, onActivate, onJumpToLine, onLoadAll, canLoadAll, onExport, exportBusy }: Props) {
   const [copyWithHeader, setCopyWithHeader] = useState(loadCopyWithHeader)
-  const [delimiter, setDelimiter] = useState<CsvDelimiter>(getCsvDelimiter)
   // A grade informa a visão (colunas e ordenação) por um ref: mudar de coluna ou ordenar não deve renderizar o painel inteiro.
   const view = useRef<GridView | null>(null)
   const onViewChange = useCallback((v: GridView) => {
@@ -100,21 +99,7 @@ export function ResultsPanel({ results, color, onActivate, onJumpToLine, onLoadA
           </button>
         </div>
         <div className="ml-auto flex shrink-0 gap-2">
-          <select
-            aria-label="Separador do CSV"
-            title="Separador do CSV"
-            value={delimiter}
-            className="h-8 rounded-md border border-line bg-input px-1 text-sm"
-            onChange={(e) => {
-              const d = e.target.value as CsvDelimiter
-              setDelimiter(d)
-              setCsvDelimiter(d)
-            }}
-          >
-            <option value=";">CSV ;</option>
-            <option value=",">CSV ,</option>
-          </select>
-          <button disabled={!canExport} className={ghost} title={`Exportar o resultado ativo em CSV (separador ${delimiter})`} onClick={() => active && onExport('csv', active, view.current ?? identityView(active.columns.length))}>
+          <button disabled={!canExport} className={ghost} title={`Exportar o resultado ativo em CSV (separador ${getCsvDelimiter()}, em Configurações)`} onClick={() => active && onExport('csv', active, view.current ?? identityView(active.columns.length))}>
             <span className="icon">&#xE896;</span> CSV
           </button>
           <button disabled={!canExport} className={ghost} title="Exportar o resultado ativo em XLSX" onClick={() => active && onExport('xlsx', active, view.current ?? identityView(active.columns.length))}>

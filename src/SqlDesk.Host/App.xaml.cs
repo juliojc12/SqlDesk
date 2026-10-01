@@ -19,6 +19,7 @@ public partial class App : Application
         var sc = new ServiceCollection();
 
         // Serviços do Core
+        sc.AddSingleton(new SqlDesk.Core.Diagnostics.ErrorLog(SqlDesk.Core.Diagnostics.ErrorLog.DefaultPath));
         sc.AddSingleton<IPasswordProtector, DpapiPasswordProtector>();
         sc.AddSingleton(sp => new ConnectionStore(ConnectionStore.DefaultPath, sp.GetRequiredService<IPasswordProtector>()));
         sc.AddSingleton<TabSessionManager>();
@@ -63,6 +64,24 @@ public partial class App : Application
         sc.AddSingleton<WebViewBridge>();
         sc.AddSingleton<MainWindow>();
         _services = sc.BuildServiceProvider();
+
+        // Erros que escapam de tudo: ficam registrados em %APPDATA%\SqlDesk\logs\error.log. A interface avisa e continua aberta
+        // (transações abertas e o texto das abas não se perdem por causa de uma falha de tela).
+        var errorLog = _services.GetRequiredService<SqlDesk.Core.Diagnostics.ErrorLog>();
+        DispatcherUnhandledException += (_, args) =>
+        {
+            errorLog.Write("Erro não tratado na interface (WPF)", args.Exception);
+            MessageBox.Show($"Ocorreu um erro inesperado: {args.Exception.Message}\n\nO aplicativo continua aberto. Detalhes em:\n{errorLog.FilePath}",
+                "SqlLite Studio", MessageBoxButton.OK, MessageBoxImage.Warning);
+            args.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            errorLog.Write("Erro fatal não tratado", args.ExceptionObject as Exception ?? new Exception(args.ExceptionObject?.ToString()));
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            errorLog.Write("Tarefa em segundo plano falhou", args.Exception);
+            args.SetObserved();
+        };
 
         // Conexão fechada: o servidor desfaz a transação; decisões pendentes e contagens deixam de valer.
         var sessions = _services.GetRequiredService<TabSessionManager>();

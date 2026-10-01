@@ -10,6 +10,16 @@
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Um único .exe: runtime e bibliotecas nativas embutidos e comprimidos, sem símbolos nem arquivos de idioma extras. -->
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AssemblyName>SqlDesk</AssemblyName>
+    <AssemblyTitle>SqlLite Studio</AssemblyTitle>
+    <Product>SqlLite Studio</Product>
+    <Version>1.0.0</Version>
     <WebDir>$(MSBuildProjectDirectory)\..\SqlDesk.Web</WebDir>
   </PropertyGroup>
 
@@ -22,6 +32,14 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
   </ItemGroup>
+
+  <!-- Na pasta de publicação fica só o SqlDesk.exe: tira símbolos e documentação XML das dependências. -->
+  <Target Name="CleanPublishDir" AfterTargets="Publish">
+    <ItemGroup>
+      <ExtraPublishFile Include="$(PublishDir)*.pdb;$(PublishDir)*.xml" />
+    </ItemGroup>
+    <Delete Files="@(ExtraPublishFile)" />
+  </Target>
 
   <!-- Release: compila o frontend e embute dist/ como recursos (extraídos em runtime e servidos via virtual host). -->
   <Target Name="BuildWeb" BeforeTargets="AssignTargetPaths" Condition="'$(Configuration)' == 'Release'">

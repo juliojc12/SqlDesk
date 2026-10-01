@@ -50,7 +50,7 @@ public sealed record OpenFileResponse(bool Cancelled, string? Path, string? Name
 /// <param name="Mode">"current" (seleção ou statement sob o cursor) ou "script" (documento inteiro).</param>
 public sealed record ExecuteRequest(
     string TabId, string ExecutionId, string Text, int Cursor, int SelectionStart, int SelectionEnd,
-    string Mode, bool NoRowLimit, bool ConfirmDangerous = false, bool SkipTranAdvice = false);
+    string Mode, bool NoRowLimit, bool ConfirmDangerous = false, bool SkipTranAdvice = false, int? MaxRows = null);
 
 public sealed record BlockedStatement(int Line, string Description);
 
