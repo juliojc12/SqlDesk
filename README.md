@@ -14,7 +14,7 @@ Cliente desktop leve para consultar bancos **SQL Server**, só para Windows. Int
 - **Travas de segurança:** `UPDATE` e `DELETE` sem `WHERE`, `TRUNCATE` e `DROP` exigem dupla confirmação; o comando roda dentro de uma transação, mostra o antes e o depois, e só então você escolhe Commit ou Rollback.
 - **Transações:** recomendação de `TRANSACTION` para comandos de escrita, indicador de transação aberta nas abas e decisão ao fechar a aba ou o app.
 - **Exportação** em CSV e XLSX, em streaming, respeitando a ordenação atual; resultados grandes podem ser reexecutados e exportados por inteiro.
-- **Árvore de objetos** com schemas, tabelas, views e procedures.
+- **Árvore de objetos** com schemas, tabelas, views e procedures; cada tabela e view expande para mostrar os **campos**, com o tipo e se aceitam NULL. Duplo clique abre um `SELECT TOP 100` da tabela.
 
 ## Como executar
 

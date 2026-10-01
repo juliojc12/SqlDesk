@@ -64,18 +64,50 @@ export function ObjectTree({ index, loading, error, onOpen }: Props) {
                       </button>
                       {open.has(gKey) && (
                         <ul className="pl-5">
-                          {items.slice(0, limit).map((o) => (
-                            <li
-                              key={o.name}
-                              role="treeitem"
-                              title={o.type === 'procedure' ? 'Duplo clique: EXEC' : 'Duplo clique: SELECT TOP 100 em uma nova aba'}
-                              className="flex cursor-pointer items-center gap-2 truncate rounded px-2 py-0.5 text-sm hover:bg-hover"
-                              onDoubleClick={() => onOpen(o)}
-                            >
-                              <span className="icon text-xs text-muted">{g.icon}</span>
-                              <span className="truncate">{o.name}</span>
-                            </li>
-                          ))}
+                          {items.slice(0, limit).map((o) => {
+                            const oKey = `${gKey}:o:${o.name}`
+                            const hasColumns = o.type !== 'procedure'
+                            const expanded = open.has(oKey)
+                            return (
+                              <li key={o.name} role="treeitem" aria-expanded={hasColumns ? expanded : undefined}>
+                                <div
+                                  title={o.type === 'procedure' ? 'Duplo clique: EXEC' : 'Duplo clique: SELECT TOP 100 em uma nova aba'}
+                                  className="flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-sm hover:bg-hover"
+                                  onDoubleClick={() => onOpen(o)}
+                                >
+                                  {hasColumns ? (
+                                    <button
+                                      className="icon flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] text-muted hover:bg-selected"
+                                      aria-label={`${expanded ? 'Recolher' : 'Mostrar'} as colunas de ${o.name}`}
+                                      onClick={() => toggle(oKey)}
+                                      onDoubleClick={(e) => e.stopPropagation()}
+                                    >
+                                      {expanded ? '\uE70D' : '\uE76C'}
+                                    </button>
+                                  ) : (
+                                    <span className="w-4 shrink-0" />
+                                  )}
+                                  <span className="icon text-xs text-muted">{g.icon}</span>
+                                  <span className="truncate">{o.name}</span>
+                                </div>
+                                {expanded && (
+                                  <ul role="group" aria-label={`Colunas de ${o.name}`} className="pb-1 pl-8">
+                                    {!index.columnsLoaded ? (
+                                      <li className="px-1 text-xs text-muted">Carregando colunas…</li>
+                                    ) : (
+                                      index.columnsOf(o).map((c) => (
+                                        <li key={c.name} role="treeitem" className="flex items-baseline gap-2 px-1 py-px text-xs" title={`${c.name} ${c.type}${c.nullable ? ' (aceita NULL)' : ' NOT NULL'}`}>
+                                          <span className="truncate">{c.name}</span>
+                                          <span className="ml-auto shrink-0 text-muted">{c.type}{c.nullable ? '' : ' · not null'}</span>
+                                        </li>
+                                      ))
+                                    )}
+                                    {index.columnsLoaded && index.columnsOf(o).length === 0 && <li className="px-1 text-xs text-muted">Sem colunas visíveis.</li>}
+                                  </ul>
+                                )}
+                              </li>
+                            )
+                          })}
                           {items.length > limit && (
                             <li>
                               <button className="px-2 py-0.5 text-xs text-muted underline" onClick={() => setShown((s) => ({ ...s, [gKey]: limit + PAGE }))}>
