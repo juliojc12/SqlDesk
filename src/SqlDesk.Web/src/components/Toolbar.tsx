@@ -20,12 +20,13 @@ interface Props {
   autoAlias: boolean
   onToggleAlias: () => void
   metaLoading: boolean
+  onFormat: () => void
   onRefreshMetadata: () => void
 }
 
 const ghost = 'flex h-8 items-center gap-2 rounded-md px-3 text-sm text-fg enabled:hover:bg-hover disabled:opacity-40'
 
-export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop, tranCount, onBeginTran, autoAlias, onToggleAlias, metaLoading, onRefreshMetadata }: Props) {
+export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop, tranCount, onBeginTran, autoAlias, onToggleAlias, metaLoading, onRefreshMetadata, onFormat }: Props) {
   const connected = tab.status === 'connected'
   const canRun = connected && !running
   return (
@@ -72,6 +73,9 @@ export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onD
         onClick={onRefreshMetadata}
       >
         &#xE72C;
+      </button>
+      <button className={ghost} title="Formatar o SQL: a seleção ou o texto todo (Shift+Alt+F)" onClick={onFormat}>
+        Formatar
       </button>
       <button
         className={`${ghost} ${autoAlias ? 'bg-hover' : ''}`}

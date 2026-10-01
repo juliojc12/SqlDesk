@@ -1,5 +1,6 @@
 import type { DocRange } from './contracts'
 import { modelPath } from './components/EditorPane'
+import { formatSql } from './formatSql'
 import { monaco } from './monacoSetup'
 
 /** O que o backend precisa para decidir o que executar: texto completo, cursor e seleção (offsets no texto). */
@@ -76,4 +77,30 @@ export function wrapInTransaction(tabId: string, range: DocRange) {
     { range: at(start), text: 'BEGIN TRAN;\n' },
   ])
   editor.focus()
+}
+
+export type FormatOutcome = { status: 'formatted' | 'unchanged' } | { status: 'refused'; reason: string }
+
+/**
+ * Formata a seleção ou, sem seleção, o texto inteiro da aba. A edição entra na pilha de desfazer (Ctrl+Z volta ao texto anterior)
+ * e, se o formatador não puder garantir que o conteúdo é o mesmo, o texto não é tocado.
+ */
+export function formatEditor(tabId: string): FormatOutcome | null {
+  const shown = editorShowing(tabId)
+  if (!shown) return null
+  const { model, editor } = shown
+  const selection = editor.getSelection()
+  const range = selection && !selection.isEmpty() ? selection : model.getFullModelRange()
+  const original = model.getValueInRange(range)
+
+  const result = formatSql(original)
+  if (!result.ok) return { status: 'refused', reason: result.reason }
+  // O modelo pode usar CRLF e o formatador devolve LF: a diferença só de fim de linha não conta como mudança.
+  if (result.text.replace(/\r\n/g, '\n') === original.replace(/\r\n/g, '\n')) return { status: 'unchanged' }
+
+  editor.pushUndoStop()
+  editor.executeEdits('sqldesk-format', [{ range, text: result.text }])
+  editor.pushUndoStop()
+  editor.focus()
+  return { status: 'formatted' }
 }

@@ -20,7 +20,7 @@ import type {
   AppCloseRequestedEvent, ConnectionInfo, ExportProgressEvent, DocRange, GuardExpiredEvent, GuardInfo, MetadataUpdatedEvent, QueryStartedEvent, TabConnectionLostEvent,
   TabTransactionEvent,
 } from './contracts'
-import { highlightRange, revealLine, snapshotOf, wrapInTransaction, type EditorSnapshot } from './editorActions'
+import { formatEditor, highlightRange, revealLine, snapshotOf, wrapInTransaction, type EditorSnapshot } from './editorActions'
 import { quoteIfNeeded } from './suggest'
 import { applyMetadata, getMeta, patchMeta, setTabConnection, useMeta } from './metadataStore'
 import type { MetaObject } from './metadataIndex'
@@ -221,6 +221,15 @@ export default function App() {
     const name = `${quoteIfNeeded(o.schema)}.${quoteIfNeeded(o.name)}`
     const text = o.type === 'procedure' ? `EXEC ${name}` : `SELECT TOP 100 * FROM ${name} ${generateAlias(o.name)}`
     addTab(conn, { text, title: o.name })
+  }
+
+  /** Formata a seleção ou o texto todo da aba ativa. Nunca altera o texto se não puder garantir que o conteúdo é o mesmo. */
+  function formatActive() {
+    const tab = latest.current.activeTab
+    if (!tab) return
+    const r = formatEditor(tab.id)
+    if (r?.status === 'refused') setNotice(`Não foi possível formatar com segurança (${r.reason}). O texto não foi alterado.`)
+    else if (r?.status === 'unchanged') setNotice('O texto já está formatado.')
   }
 
   function toggleAutoAlias() {
@@ -588,8 +597,8 @@ export default function App() {
 
   // ---------- Atalhos globais (fase de captura: antes do Monaco) ----------
   const modalOpen = !!(danger || guardDlg || closingTran || appClose || confirmDisconnect)
-  const latest = useRef({ newTab, requestClose, saveTab, openFile, activeTab, execute, stop, modalOpen, noAdvice })
-  latest.current = { newTab, requestClose, saveTab, openFile, activeTab, execute, stop, modalOpen, noAdvice }
+  const latest = useRef({ newTab, requestClose, saveTab, openFile, activeTab, execute, stop, modalOpen, noAdvice, formatActive })
+  latest.current = { newTab, requestClose, saveTab, openFile, activeTab, execute, stop, modalOpen, noAdvice, formatActive }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const l = latest.current
@@ -600,6 +609,7 @@ export default function App() {
       }
       // Execução (como no DBeaver): F5 roda o script; Esc cancela só se houver execução em andamento.
       if (e.key === 'F5' && !e.ctrlKey && !e.altKey) return run(() => void l.execute('script'))
+      if (e.shiftKey && e.altKey && !e.ctrlKey && e.code === 'KeyF') return run(l.formatActive)
       if (e.key === 'Escape' && l.activeTab && getResults(l.activeTab.id).running) return run(l.stop)
 
       if (!e.ctrlKey || e.altKey) return
@@ -735,6 +745,7 @@ export default function App() {
                 autoAlias={autoAlias}
                 onToggleAlias={toggleAutoAlias}
                 metaLoading={activeMeta.loading}
+                onFormat={formatActive}
                 onRefreshMetadata={() => activeTab.connectionId && void ensureMetadata(activeTab.connectionId, true)}
               />
               {(activeTab.status === 'error' || activeTab.status === 'no-connection') && activeTab.statusMessage && (

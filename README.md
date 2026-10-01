@@ -9,6 +9,7 @@ Cliente desktop leve para consultar bancos **SQL Server**, só para Windows. Int
 - **Várias conexões ao mesmo tempo**, com autenticação SQL, cada uma com a sua cor. A senha é guardada criptografada (DPAPI) e nunca volta para a interface.
 - **Abas de query coloridas** pela conexão, com restauração das abas ao reabrir o app.
 - **Editor Monaco** com autocomplete contextual (tabelas, colunas, schemas, procedures) e alias automático de tabela.
+- **Formatação do SQL** (`Shift+Alt+F` ou botão Formatar): da seleção ou do texto todo, preservando comentários e textos entre aspas, e só aceita o resultado se o conteúdo do script não mudar.
 - **Execução como no DBeaver:** `Ctrl+Enter` executa a seleção ou o statement sob o cursor, `Ctrl+\` abre o resultado numa nova sub-aba, `F5` executa o script inteiro (com `GO`) e `Esc` cancela.
 - **Resultados** em grade virtualizada: ordenação pelos cabeçalhos, colunas redimensionáveis e reordenáveis, cópia para o Excel, vários result sets e aba de mensagens.
 - **Travas de segurança:** `UPDATE` e `DELETE` sem `WHERE`, `TRUNCATE` e `DROP` exigem dupla confirmação; o comando roda dentro de uma transação, mostra o antes e o depois, e só então você escolhe Commit ou Rollback.
