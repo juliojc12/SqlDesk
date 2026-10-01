@@ -7,15 +7,17 @@ import { ResultsPanel } from './components/ResultsPanel'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { AppCloseDialog, DangerDialog, GuardDialog, TranAdviceBar, TranCloseDialog } from './components/GuardDialogs'
+import { ExportChoiceDialog, ExportToast, type ExportJob } from './components/ExportDialogs'
 import { ConnectionPicker, PasswordPrompt, UnsavedDialog } from './components/TabDialogs'
 import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { Toolbar } from './components/Toolbar'
 import { generateAlias } from './alias'
+import { buildLoadedPayload, resultOrdinal, suggestedFileName, type GridView } from './exporter'
 import { NEUTRAL_COLOR } from './colors'
 import { registerCompletion } from './completion'
 import type {
-  AppCloseRequestedEvent, ConnectionInfo, DocRange, GuardExpiredEvent, GuardInfo, MetadataUpdatedEvent, QueryStartedEvent, TabConnectionLostEvent,
+  AppCloseRequestedEvent, ConnectionInfo, ExportProgressEvent, DocRange, GuardExpiredEvent, GuardInfo, MetadataUpdatedEvent, QueryStartedEvent, TabConnectionLostEvent,
   TabTransactionEvent,
 } from './contracts'
 import { highlightRange, revealLine, snapshotOf, wrapInTransaction, type EditorSnapshot } from './editorActions'
@@ -23,7 +25,7 @@ import { quoteIfNeeded } from './suggest'
 import { applyMetadata, getMeta, patchMeta, setTabConnection, useMeta } from './metadataStore'
 import type { MetaObject } from './metadataIndex'
 import { monaco } from './monacoSetup'
-import { getAutoAlias, setAutoAlias } from './settings'
+import { getAutoAlias, getCsvDelimiter, setAutoAlias } from './settings'
 import { beginRun, failRun, finishRun, type ResultSet } from './results'
 import { clearResults, getResults, listenToQueryEvents, updateResults, useTabResults } from './resultsStore'
 import { deserialize, initialTabsState, isDirty, serialize, tabsReducer, type Tab } from './tabsState'
@@ -92,6 +94,8 @@ export default function App() {
   const [closingTran, setClosingTran] = useState<Tab | null>(null)
   const [tranBusy, setTranBusy] = useState(false)
   const [appClose, setAppClose] = useState<{ tabId: string; count: number }[] | null>(null)
+  const [exportChoice, setExportChoice] = useState<{ format: 'csv' | 'xlsx'; set: ResultSet; view: GridView } | null>(null)
+  const [exportJob, setExportJob] = useState<ExportJob | null>(null)
   const [autoAlias, setAutoAliasState] = useState(getAutoAlias)
   const [confirmDisconnect, setConfirmDisconnect] = useState<{ message: string; run: () => Promise<void> } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -157,11 +161,15 @@ export default function App() {
       setNotice(p.message)
     })
     const offClose = on<AppCloseRequestedEvent>('app.closeRequested', (p) => setAppClose(p.tabs))
+    const offExport = on<ExportProgressEvent>('export.progress', (p) =>
+      setExportJob((j) => (j && j.id === p.exportId && j.status === 'running' ? { ...j, rows: p.rows } : j)),
+    )
     const offMeta = on<MetadataUpdatedEvent>('metadata.updated', (p) => {
       if (p.phase === 'error') patchMeta(p.connectionId, { loading: false, error: p.message ?? 'Não foi possível carregar os metadados.' })
       else void loadMetadata(p.connectionId)
     })
     return () => {
+      offExport()
       offMeta()
       offResults()
       offHighlight()
@@ -403,6 +411,46 @@ export default function App() {
     // Clicar numa sub-aba de resultado destaca no editor o trecho que a gerou.
     const set = getResults(activeTab.id).sets.find((s) => s.key === key)
     if (set) highlightRange(activeTab.id, set.source)
+  }
+
+  // ---------- Exportação ----------
+  /** O destino é escolhido no "Salvar como" nativo (aberto pelo host); depois a exportação roda em segundo plano, com progresso. */
+  async function runExport(format: 'csv' | 'xlsx', set: ResultSet, view: GridView, mode: 'loaded' | 'rerun') {
+    const tab = latest.current.activeTab
+    if (!tab) return
+    try {
+      const pick = await invoke('export.pickPath', { format, suggestedName: suggestedFileName(tab.title, set.title, format) })
+      if (pick.cancelled || !pick.path) return
+      const id = crypto.randomUUID()
+      const name = pick.path.split(/[\\/]/).pop() ?? pick.path
+      setExportJob({ id, format, name, rows: 0, status: 'running' })
+      const delimiter = getCsvDelimiter()
+      const done =
+        mode === 'loaded'
+          ? await (() => {
+              const { columns, rows } = buildLoadedPayload(set, view)
+              return invoke('export.loaded', { exportId: id, format, path: pick.path as string, delimiter, columns, rows })
+            })()
+          : await invoke('export.rerun', {
+              exportId: id, tabId: tab.id, sourceText: set.sourceText, format, path: pick.path, delimiter,
+              resultOrdinal: resultOrdinal(getResults(tab.id).sets, set), columnOrder: view.colOrder,
+            })
+      setExportJob({ id, format, name, rows: done.rows, status: 'done', path: done.path, elapsedMs: done.elapsedMs })
+    } catch (e) {
+      if (e instanceof BridgeCallError && e.detail.code === 'cancelled') {
+        setExportJob(null)
+        setNotice('Exportação cancelada. Nenhum arquivo foi gravado.')
+      } else setExportJob((j) => ({ id: j?.id ?? '', format, name: j?.name ?? '', rows: 0, status: 'error', message: msg(e) }))
+    }
+  }
+
+  function requestExport(format: 'csv' | 'xlsx', set: ResultSet, view: GridView) {
+    if (set.truncated) setExportChoice({ format, set, view })
+    else void runExport(format, set, view, 'loaded')
+  }
+
+  function cancelExport() {
+    if (exportJob?.status === 'running') void invoke('export.cancel', { exportId: exportJob.id }).catch((e) => setError(msg(e)))
   }
 
   // ---------- Abas ----------
@@ -729,6 +777,8 @@ export default function App() {
                     onJumpToLine={(line) => revealLine(activeTab.id, line)}
                     onLoadAll={loadAll}
                     canLoadAll={activeTab.status === 'connected' && !results.running}
+                    onExport={requestExport}
+                    exportBusy={exportJob?.status === 'running'}
                   />
                 </div>
               </div>
@@ -768,6 +818,33 @@ export default function App() {
         <ConfirmDialog title="Excluir conexão" confirmLabel="Excluir" danger onConfirm={() => void confirmDelete()} onCancel={() => setDeleting(null)}>
           Excluir a conexão <strong className="text-fg">{deleting.name}</strong>? A senha salva também será removida. As abas dela continuam abertas, sem conexão.
         </ConfirmDialog>
+      )}
+      {exportChoice && (
+        <ExportChoiceDialog
+          loaded={exportChoice.set.rowCount}
+          hasSort={exportChoice.view.sort.length > 0}
+          canRerun={!!activeTab && activeTab.status === 'connected' && !results.running}
+          onCancel={() => setExportChoice(null)}
+          onLoaded={() => {
+            const c = exportChoice
+            setExportChoice(null)
+            void runExport(c.format, c.set, c.view, 'loaded')
+          }}
+          onRerun={() => {
+            const c = exportChoice
+            setExportChoice(null)
+            void runExport(c.format, c.set, c.view, 'rerun')
+          }}
+        />
+      )}
+      {exportJob && (
+        <ExportToast
+          job={exportJob}
+          onCancel={cancelExport}
+          onDismiss={() => setExportJob(null)}
+          onOpenFile={() => exportJob.path && void invoke('export.openFile', { path: exportJob.path }).catch((e) => setError(msg(e)))}
+          onShowFolder={() => exportJob.path && void invoke('export.showInFolder', { path: exportJob.path }).catch((e) => setError(msg(e)))}
+        />
       )}
       {danger && (
         <DangerDialog

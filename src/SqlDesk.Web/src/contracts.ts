@@ -126,6 +126,8 @@ export interface ExecuteResponse {
   guard?: GuardInfo
 }
 
+export interface ExportDone { path: string; rows: number; elapsedMs: number }
+export interface ExportProgressEvent { exportId: string; rows: number }
 export interface MetadataUpdatedEvent { connectionId: string; phase: 'objects' | 'columns' | 'error'; message?: string }
 export interface TabTransactionEvent { tabId: string; count: number }
 export interface TabConnectionLostEvent { tabId: string; hadTransaction: boolean }
@@ -167,6 +169,21 @@ export interface Requests {
   'tran.rollback': { request: { tabId: string }; response: { tranCount: number } }
   'metadata.refresh': { request: { connectionId: string; force: boolean }; response: { started: boolean; loading: boolean; loaded: boolean } }
   'metadata.get': { request: { connectionId: string }; response: import('./metadataIndex').MetadataDto }
+  'export.pickPath': { request: { format: 'csv' | 'xlsx'; suggestedName: string }; response: { cancelled: boolean; path?: string } }
+  'export.loaded': {
+    request: { exportId: string; format: 'csv' | 'xlsx'; path: string; delimiter: string; columns: ColumnInfo[]; rows: Cell[][] }
+    response: ExportDone
+  }
+  'export.rerun': {
+    request: {
+      exportId: string; tabId: string; sourceText: string; format: 'csv' | 'xlsx'; path: string; delimiter: string
+      resultOrdinal: number; columnOrder: number[]
+    }
+    response: ExportDone
+  }
+  'export.cancel': { request: { exportId: string }; response: Record<string, never> }
+  'export.openFile': { request: { path: string }; response: Record<string, never> }
+  'export.showInFolder': { request: { path: string }; response: Record<string, never> }
   'window.forceClose': { request: Record<string, never>; response: Record<string, never> }
   'session.load': { request: Record<string, never>; response: { state?: string | null } }
   'session.save': { request: { state: string }; response: Record<string, never> }

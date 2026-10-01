@@ -48,7 +48,10 @@ public static class ResultStreamer
 
             reader.GetValues(raw);
             var row = new object?[fieldCount];
-            for (var i = 0; i < fieldCount; i++) row[i] = CellValues.Convert(raw[i], typeNames[i]);
+            if (sink.WantsRawValues)
+                for (var i = 0; i < fieldCount; i++) row[i] = raw[i] is DBNull ? null : raw[i];
+            else
+                for (var i = 0; i < fieldCount; i++) row[i] = CellValues.Convert(raw[i], typeNames[i]);
             batch.Add(row);
             count++;
 

@@ -109,5 +109,31 @@ public sealed record MetadataDto(
 /// <param name="Phase">objects | columns | error</param>
 public sealed record MetadataUpdatedEvent(Guid ConnectionId, string Phase, string? Message);
 
+// ---- Exportação ----
+/// <param name="Format">csv | xlsx</param>
+public sealed record ExportPickRequest(string Format, string SuggestedName);
+
+public sealed record ExportPickResponse(bool Cancelled, string? Path);
+
+/// <param name="Delimiter">Separador do CSV: ";" (padrão), "," ou tab.</param>
+/// <param name="Rows">Linhas já na ordem exibida e com as colunas na ordem exibida (o frontend aplica ordenação e reordenação).</param>
+public sealed record ExportLoadedRequest(
+    string ExportId, string Format, string Path, string Delimiter,
+    IReadOnlyList<SqlDesk.Core.Execution.ColumnInfo> Columns, System.Text.Json.JsonElement[][] Rows);
+
+/// <param name="ResultOrdinal">Posição do result set entre os que o texto produz.</param>
+/// <param name="ColumnOrder">Índices das colunas originais, na ordem exibida.</param>
+public sealed record ExportRerunRequest(
+    string ExportId, string TabId, string SourceText, string Format, string Path, string Delimiter,
+    int ResultOrdinal, int[]? ColumnOrder);
+
+public sealed record ExportDoneResponse(string Path, long Rows, long ElapsedMs);
+
+public sealed record ExportCancelRequest(string ExportId);
+
+public sealed record ExportProgressEvent(string ExportId, long Rows);
+
+public sealed record PathRequest(string Path);
+
 // ---- Janela ----
 public sealed record WindowStateEvent(bool Maximized);

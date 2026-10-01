@@ -18,3 +18,24 @@ export function setAutoAlias(on: boolean) {
     /* preferência de conveniência; sem armazenamento, vale só para esta sessão */
   }
 }
+
+const CSV_DELIMITER_KEY = 'csvDelimiter'
+
+export type CsvDelimiter = ';' | ','
+
+/** Separador do CSV exportado: ponto e vírgula por padrão (o Excel em português espera isso). */
+export function getCsvDelimiter(): CsvDelimiter {
+  try {
+    return localStorage.getItem(CSV_DELIMITER_KEY) === ',' ? ',' : ';'
+  } catch {
+    return ';'
+  }
+}
+
+export function setCsvDelimiter(d: CsvDelimiter) {
+  try {
+    localStorage.setItem(CSV_DELIMITER_KEY, d)
+  } catch {
+    /* preferência de conveniência */
+  }
+}

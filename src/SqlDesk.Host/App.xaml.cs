@@ -28,6 +28,7 @@ public partial class App : Application
         sc.AddSingleton<TransactionService>();
         sc.AddSingleton(sp => new GuardedRunner(sp.GetRequiredService<ISessionDb>(), sp.GetRequiredService<IBatchRunner>()));
         sc.AddSingleton<TransactionNotifier>();
+        sc.AddSingleton<ExportRegistry>();
         sc.AddSingleton(sp =>
         {
             var sessions = sp.GetRequiredService<TabSessionManager>();
@@ -49,6 +50,8 @@ public partial class App : Application
             typeof(ExecuteHandler), typeof(CancelHandler), typeof(GuardResolveHandler),
             typeof(BeginTranHandler), typeof(CommitTranHandler), typeof(RollbackTranHandler), typeof(ForceCloseHandler),
             typeof(MetadataRefreshHandler), typeof(MetadataGetHandler),
+            typeof(ExportPickPathHandler), typeof(ExportLoadedHandler), typeof(ExportRerunHandler), typeof(ExportCancelHandler),
+            typeof(OpenExportedFileHandler), typeof(ShowExportedFileHandler),
             typeof(SaveFileHandler), typeof(OpenFileHandler),
             typeof(MinimizeWindowHandler), typeof(ToggleMaximizeWindowHandler), typeof(CloseWindowHandler),
         })

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Cell, ColumnInfo } from '../contracts'
+import type { GridView } from '../exporter'
 import { toTsv } from '../gridCopy'
 import { nextSort, sortedOrder, type SortKey } from '../gridSort'
 import type { ResultSet } from '../results'
@@ -20,6 +21,8 @@ interface Props {
   onCopyWithHeaderChange: (v: boolean) => void
   onLoadAll: () => void
   canLoadAll: boolean
+  /** Informa a ordem de colunas e a ordenação atuais (a exportação os respeita). */
+  onViewChange?: (view: GridView) => void
 }
 
 function initialWidth(col: ColumnInfo, sample: readonly Cell[][], index: number): number {
@@ -57,7 +60,7 @@ function Value({ value, kind }: { value: Cell; kind: ColumnInfo['kind'] }) {
  * Grade virtualizada: só as linhas visíveis existem no DOM. Ordenação, redimensionamento, reordenação de colunas
  * e seleção/cópia vivem aqui, no cliente, sem reexecutar a query.
  */
-export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, onLoadAll, canLoadAll }: Props) {
+export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, onLoadAll, canLoadAll, onViewChange }: Props) {
   const { columns, rows } = set
   const scroller = useRef<HTMLDivElement>(null)
   const [scrollTop, setScrollTop] = useState(0)
@@ -92,8 +95,12 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
     return () => window.removeEventListener('mouseup', up)
   }, [])
 
+  useEffect(() => {
+    onViewChange?.({ colOrder, sort })
+  }, [colOrder, sort, onViewChange])
+
   const kinds = useMemo(() => columns.map((c) => c.kind), [columns])
-  const total = set.rowCount
+  const total = Math.min(set.rowCount, rows.length)
   // `rows` é mutado no lugar: o tamanho (total) é o que diz quando recalcular.
   const order = useMemo(() => sortedOrder(rows, kinds, sort, total), [rows, total, kinds, sort])
   const totalW = ROWNUM_W + colOrder.reduce((sum, c) => sum + widths[c], 0)

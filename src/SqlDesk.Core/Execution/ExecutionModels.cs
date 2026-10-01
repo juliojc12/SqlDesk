@@ -40,6 +40,12 @@ public interface IExecutionSink
 
     /// <summary>Um statement terminou e afetou (ou devolveu) <paramref name="recordCount"/> linhas.</summary>
     void StatementCompleted(long recordCount) { }
+
+    /// <summary>
+    /// Se verdadeiro, as linhas chegam com o tipo original do .NET (decimal, DateTime, byte[]...) e sem o corte de texto e binário
+    /// da grade, em vez de convertidas para JSON. Usado pela exportação.
+    /// </summary>
+    bool WantsRawValues => false;
 }
 
 /// <param name="ErrorNumber">Número do primeiro erro do SQL Server, quando a execução falhou por SqlException.</param>
