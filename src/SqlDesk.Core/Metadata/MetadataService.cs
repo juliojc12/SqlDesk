@@ -100,8 +100,18 @@ public static class MetadataReader
 /// Cache de metadados por conexão, em memória. Carrega primeiro schemas e objetos, e em seguida as colunas, numa
 /// conexão própria (não a de uma aba), avisando o frontend a cada fase.
 /// </summary>
-public sealed class MetadataService(Func<Guid, CancellationToken, Task<SqlConnection>> openConnection)
+public sealed class MetadataService
 {
+    private readonly Func<Guid, Action<string, string?>, Task> _loader;
+
+    public MetadataService(Func<Guid, CancellationToken, Task<SqlConnection>> openConnection)
+    {
+        _loader = (id, onPhase) => LoadAsync(openConnection, id, onPhase);
+    }
+
+    /// <summary>Com um carregador próprio (usado nos testes, que não têm servidor). Ele só avisa a fase "objects"; a fase final é do serviço.</summary>
+    public MetadataService(Func<Guid, Action<string, string?>, Task> loader) => _loader = loader;
+
     private readonly ConcurrentDictionary<Guid, MetadataSnapshot> _cache = new();
     private readonly ConcurrentDictionary<Guid, byte> _loading = new();
 
@@ -122,14 +132,20 @@ public sealed class MetadataService(Func<Guid, CancellationToken, Task<SqlConnec
 
         _ = Task.Run(async () =>
         {
-            try { await LoadAsync(connectionId, onPhase); }
-            catch (Exception ex) { onPhase(MetaPhase.Error, ex.Message); }
-            finally { _loading.TryRemove(connectionId, out _); }
+            string? error = null;
+            try { await _loader(connectionId, onPhase); }
+            catch (Exception ex) { error = ex.Message; }
+
+            // O carregamento precisa constar como terminado ANTES do aviso final: o frontend reage ao aviso consultando o estado,
+            // e se ainda visse "carregando" ficaria esperando para sempre um aviso que não vem mais.
+            _loading.TryRemove(connectionId, out _);
+            if (error is null) onPhase(MetaPhase.Columns, null);
+            else onPhase(MetaPhase.Error, error);
         });
         return true;
     }
 
-    private async Task LoadAsync(Guid connectionId, Action<string, string?> onPhase)
+    private async Task LoadAsync(Func<Guid, CancellationToken, Task<SqlConnection>> openConnection, Guid connectionId, Action<string, string?> onPhase)
     {
         await using var conn = await openConnection(connectionId, CancellationToken.None);
 
@@ -154,6 +170,5 @@ public sealed class MetadataService(Func<Guid, CancellationToken, Task<SqlConnec
             var columns = await MetadataReader.ReadColumnsAsync(reader, default);
             _cache[connectionId] = new MetadataSnapshot(MetadataReader.SchemasOf(objects), objects, columns, true, DateTimeOffset.UtcNow);
         }
-        onPhase(MetaPhase.Columns, null);
     }
 }

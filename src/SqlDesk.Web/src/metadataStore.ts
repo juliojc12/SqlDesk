@@ -26,7 +26,8 @@ export function patchMeta(connectionId: string, patch: Partial<MetaState>) {
 export function applyMetadata(connectionId: string, dto: MetadataDto) {
   patchMeta(connectionId, {
     index: dto.loaded ? buildIndex(dto) : getMeta(connectionId).index,
-    loading: dto.loading,
+    // Cache completo nunca é "carregando": protege a interface de um estado transitório do backend.
+    loading: dto.loading && !dto.columnsLoaded,
     columnsLoaded: dto.columnsLoaded,
     error: undefined,
   })

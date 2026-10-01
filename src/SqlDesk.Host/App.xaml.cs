@@ -99,7 +99,9 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _services?.Dispose();
+        // O container só sabe descartar com DisposeAsync (as sessões das abas são IAsyncDisposable). Roda fora da thread da interface
+        // para não travar o encerramento esperando as conexões fecharem.
+        if (_services is { } services) Task.Run(() => services.DisposeAsync().AsTask()).GetAwaiter().GetResult();
         base.OnExit(e);
     }
 }

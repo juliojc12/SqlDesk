@@ -46,7 +46,14 @@ public sealed class WebViewBridge(MessageDispatcher dispatcher, EventHub events)
     private void Send(string? id, string type, object? payload)
     {
         var json = JsonSerializer.Serialize(new { id, type, payload }, BridgeJson.Options);
-        void Post() => _web?.PostWebMessageAsJson(json);
+        void Post()
+        {
+            try { _web?.PostWebMessageAsJson(json); }
+            catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+            {
+                // A janela está fechando e o WebView já foi descartado: não há mais para quem enviar.
+            }
+        }
         if (_ui is not null && SynchronizationContext.Current != _ui) _ui.Post(_ => Post(), null);
         else Post();
     }

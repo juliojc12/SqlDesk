@@ -37,7 +37,7 @@ export function ObjectTree({ index, loading, error, onOpen }: Props) {
 
   return (
     <div role="tree" className="pb-1 pl-3">
-      {loading && <p className="px-2 pb-1 text-xs text-muted">Carregando colunas…</p>}
+      {loading && !index.columnsLoaded && <p className="px-2 pb-1 text-xs text-muted">Carregando colunas…</p>}
       {index.schemas.map((schema) => {
         const sKey = `s:${schema}`
         const objects = index.objectsOfSchema(schema)
