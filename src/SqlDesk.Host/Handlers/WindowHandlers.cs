@@ -16,6 +16,15 @@ public sealed class WindowController
 
     public void Close() => Run(w => w.Close());
 
+    /// <summary>Quando verdadeiro, o fechamento não é interceptado por transações abertas (o frontend já as resolveu).</summary>
+    public bool AllowClose { get; private set; }
+
+    public void ForceClose()
+    {
+        AllowClose = true;
+        Close();
+    }
+
     private void Run(Action<Window> a)
     {
         if (_window is { } w) w.Dispatcher.Invoke(() => a(w));

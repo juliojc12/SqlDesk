@@ -37,6 +37,30 @@ public interface IExecutionSink
 
     /// <param name="line">Linha (base 1) no documento, quando conhecida.</param>
     void Message(string kind, string text, int? line);
+
+    /// <summary>Um statement terminou e afetou (ou devolveu) <paramref name="recordCount"/> linhas.</summary>
+    void StatementCompleted(long recordCount) { }
 }
 
-public sealed record RunSummary(string Status, long ElapsedMs, long TotalRows);
+/// <param name="ErrorNumber">Número do primeiro erro do SQL Server, quando a execução falhou por SqlException.</param>
+public sealed record RunSummary(string Status, long ElapsedMs, long TotalRows, int? ErrorNumber = null);
+
+/// <summary>Executa batches já analisados na conexão da aba. Separado para que o fluxo com travas seja testável.</summary>
+public interface IBatchRunner
+{
+    bool IsRunning(string tabId);
+
+    Task<RunSummary> RunAsync(
+        string tabId, IReadOnlyList<SqlDesk.SqlAnalysis.Batch> batches, int baseOffset, int baseLine, int? maxRows,
+        IExecutionSink sink, CancellationToken externalCt = default);
+}
+
+/// <summary>Comandos fixos (nunca texto do usuário) que o controle de transações roda na conexão da aba.</summary>
+public interface ISessionDb
+{
+    Task<int> TranCountAsync(string tabId, CancellationToken ct);
+
+    Task ExecAsync(string tabId, string sql, CancellationToken ct);
+
+    Task<long?> CountAsync(string tabId, string sql, CancellationToken ct);
+}

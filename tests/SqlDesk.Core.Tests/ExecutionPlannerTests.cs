@@ -77,11 +77,12 @@ public class ExecutionPlannerTests
     {
         const string text = "SELECT 1;\nSELECT 2;\nUPDATE dbo.Clientes SET Nome = 'x';";
 
-        var plan = Assert.IsType<ExecutionPlan.Refused>(ExecutionPlanner.Plan(text, 0, 0, 0, wholeScript: true));
+        var plan = Assert.IsType<ExecutionPlan.Dangerous>(ExecutionPlanner.Plan(text, 0, 0, 0, wholeScript: true));
 
         var blocked = Assert.Single(plan.Blocked);
         Assert.Equal(3, blocked.Line);
-        Assert.Contains("nada foi enviado ao banco", plan.Message);
+        Assert.Single(plan.Dangers);
+        Assert.Equal(text, plan.Text);
     }
 
     [Fact]
@@ -90,9 +91,10 @@ public class ExecutionPlannerTests
         const string text = "SELECT 1;\n\nDELETE FROM dbo.T;";
         var start = text.IndexOf("DELETE", StringComparison.Ordinal);
 
-        var plan = Assert.IsType<ExecutionPlan.Refused>(ExecutionPlanner.Plan(text, 0, start, text.Length, wholeScript: false));
+        var plan = Assert.IsType<ExecutionPlan.Dangerous>(ExecutionPlanner.Plan(text, 0, start, text.Length, wholeScript: false));
 
         Assert.Equal(3, Assert.Single(plan.Blocked).Line);
+        Assert.Equal(start, plan.BaseOffset);
     }
 
     [Fact]
@@ -111,7 +113,7 @@ public class ExecutionPlannerTests
         const string text = "SELECT 1;\nTRUNCATE TABLE dbo.T;";
         var cursor = text.IndexOf("TRUNCATE", StringComparison.Ordinal) + 2;
 
-        Assert.IsType<ExecutionPlan.Refused>(ExecutionPlanner.Plan(text, cursor, cursor, cursor, wholeScript: false));
+        Assert.IsType<ExecutionPlan.Dangerous>(ExecutionPlanner.Plan(text, cursor, cursor, cursor, wholeScript: false));
     }
 
     [Fact]
@@ -126,5 +128,18 @@ public class ExecutionPlannerTests
     {
         var plan = Runnable(ExecutionPlanner.Plan("SELECT 1", 999, 999, 999, wholeScript: false));
         Assert.Equal("SELECT 1", plan.Batches.Single().Text);
+    }
+
+    [Theory]
+    [InlineData("UPDATE dbo.T SET a = 1 WHERE id = 5", true)]
+    [InlineData("DELETE FROM dbo.T WHERE id = 5", true)]
+    [InlineData("MERGE dbo.T AS t USING dbo.S AS s ON t.id = s.id WHEN MATCHED THEN UPDATE SET a = 1;", true)]
+    [InlineData("SELECT * FROM dbo.T", false)]
+    [InlineData("INSERT INTO dbo.T (a) VALUES (1)", false)]
+    public void Detecta_escrita_com_filtro_para_recomendar_transacao(string sql, bool escreve)
+    {
+        var plan = Runnable(ExecutionPlanner.Plan(sql, 0, 0, 0, wholeScript: true));
+        Assert.Equal(escreve, plan.HasWrites);
+        Assert.Equal(new DocRange(0, sql.Length), plan.Range);
     }
 }

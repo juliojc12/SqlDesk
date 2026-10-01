@@ -17,6 +17,8 @@ public sealed class WebViewBridge(MessageDispatcher dispatcher, EventHub events)
         events.Attach(Publish);
     }
 
+    public bool IsAttached => _web is not null;
+
     /// <summary>Evento sem requisição (id nulo).</summary>
     public void Publish(string type, object? payload) => Send(null, type, payload);
 

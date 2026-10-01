@@ -81,15 +81,55 @@ export interface ExecuteRequest {
   /** current = seleção ou statement sob o cursor; script = documento inteiro. */
   mode: 'current' | 'script'
   noRowLimit: boolean
+  /** Resposta à primeira confirmação: executa dentro de uma transação, com a segunda confirmação depois. */
+  confirmDangerous?: boolean
+  /** O usuário escolheu "Executar assim mesmo" (ou "Não perguntar nesta aba") na barra de recomendação. */
+  skipTranAdvice?: boolean
 }
 
+export type DangerKind = 'updateWithoutWhere' | 'deleteWithoutWhere' | 'truncateTable' | 'drop' | 'dropColumn' | 'unanalyzable'
+
+export interface GuardChange {
+  kind: DangerKind
+  target?: string
+  /** Linha (base 1) no documento. */
+  line: number
+  description: string
+  affectedRows?: number
+  hasPreview: boolean
+  columns: string[]
+  before: Cell[][]
+  after: Cell[][]
+}
+
+export interface GuardInfo {
+  guardId: string
+  timeoutSeconds: number
+  usesSavepoint: boolean
+  previewUnavailable: boolean
+  approximate: boolean
+  totalAffected: number
+  changes: GuardChange[]
+}
+
+export type ExecuteStatus =
+  | 'completed' | 'error' | 'cancelled' | 'refused' | 'nothing'
+  | 'needs_confirmation' | 'advise_transaction' | 'pending_decision' | 'tran_lost'
+
 export interface ExecuteResponse {
-  status: 'completed' | 'error' | 'cancelled' | 'refused' | 'nothing'
+  status: ExecuteStatus
   elapsedMs: number
   totalRows: number
   message?: string
   blocked?: { line: number; description: string }[]
+  range?: DocRange
+  guard?: GuardInfo
 }
+
+export interface TabTransactionEvent { tabId: string; count: number }
+export interface TabConnectionLostEvent { tabId: string; hadTransaction: boolean }
+export interface GuardExpiredEvent { tabId: string; executionId: string; message: string }
+export interface AppCloseRequestedEvent { tabs: { tabId: string; count: number }[] }
 
 export interface QueryStartedEvent { tabId: string; executionId: string; range?: DocRange }
 export interface QueryResultStartedEvent { tabId: string; executionId: string; resultIndex: number; source: DocRange; columns: ColumnInfo[] }
@@ -120,6 +160,11 @@ export interface Requests {
   'tabs.disconnect': { request: { tabId: string }; response: Record<string, never> }
   'query.execute': { request: ExecuteRequest; response: ExecuteResponse }
   'query.cancel': { request: { tabId: string }; response: Record<string, never> }
+  'query.guard.resolve': { request: { tabId: string; guardId: string; commit: boolean }; response: { committed: boolean; message: string } }
+  'tran.begin': { request: { tabId: string }; response: { tranCount: number } }
+  'tran.commit': { request: { tabId: string }; response: { tranCount: number } }
+  'tran.rollback': { request: { tabId: string }; response: { tranCount: number } }
+  'window.forceClose': { request: Record<string, never>; response: Record<string, never> }
   'session.load': { request: Record<string, never>; response: { state?: string | null } }
   'session.save': { request: { state: string }; response: Record<string, never> }
   'files.save': {

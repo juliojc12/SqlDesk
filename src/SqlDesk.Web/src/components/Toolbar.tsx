@@ -15,16 +15,17 @@ interface Props {
   onRun: () => void
   onRunScript: () => void
   onStop: () => void
+  tranCount: number
+  onBeginTran: () => void
 }
 
 const ghost = 'flex h-8 items-center gap-2 rounded-md px-3 text-sm text-fg enabled:hover:bg-hover disabled:opacity-40'
 
-export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop }: Props) {
+export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop, tranCount, onBeginTran }: Props) {
   const connected = tab.status === 'connected'
   const canRun = connected && !running
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-4">
-      {/* Transações chegam na Fase 6; o controle já ocupa seu lugar no layout. */}
       <button
         disabled={!canRun}
         onClick={onRun}
@@ -47,8 +48,13 @@ export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onD
       >
         <span className="icon">&#xE71A;</span> {running && 'Parar'}
       </button>
-      <button disabled className={ghost}>
-        <span className="icon">&#xE8C8;</span> Transação
+      <button
+        disabled={!canRun || tranCount > 0}
+        onClick={onBeginTran}
+        title={tranCount > 0 ? 'Há uma transação aberta nesta aba (Commit e Rollback na barra de status)' : 'Iniciar uma transação nesta aba (BEGIN TRANSACTION)'}
+        className={ghost}
+      >
+        <span className="icon">&#xE8C8;</span> {tranCount > 0 ? 'Transação aberta' : 'Transação'}
       </button>
       <span className="mx-1 h-5 w-px bg-line" aria-hidden />
       <button className={`${ghost} icon w-9 justify-center px-0`} title="Salvar (Ctrl+S)" aria-label="Salvar" onClick={onSave}>&#xE74E;</button>

@@ -44,7 +44,8 @@ public sealed record ScriptAnalysis(
     IReadOnlyList<Batch> Batches,
     IReadOnlyList<DangerousStatement> Dangers,
     IReadOnlyList<AnalysisDiagnostic> SyntaxErrors,
-    IReadOnlyList<string> Warnings)
+    IReadOnlyList<string> Warnings,
+    bool HasWrites = false)
 {
     /// <summary>Nenhum statement exige confirmação.</summary>
     public bool IsSafe => Dangers.Count == 0;

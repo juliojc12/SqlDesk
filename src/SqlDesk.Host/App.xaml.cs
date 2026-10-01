@@ -23,6 +23,11 @@ public partial class App : Application
         sc.AddSingleton(sp => new ConnectionStore(ConnectionStore.DefaultPath, sp.GetRequiredService<IPasswordProtector>()));
         sc.AddSingleton<TabSessionManager>();
         sc.AddSingleton<QueryRunner>();
+        sc.AddSingleton<IBatchRunner>(sp => sp.GetRequiredService<QueryRunner>());
+        sc.AddSingleton<ISessionDb, SqlSessionDb>();
+        sc.AddSingleton<TransactionService>();
+        sc.AddSingleton(sp => new GuardedRunner(sp.GetRequiredService<ISessionDb>(), sp.GetRequiredService<IBatchRunner>()));
+        sc.AddSingleton<TransactionNotifier>();
         sc.AddSingleton(new SessionStateStore(SessionStateStore.DefaultPath));
         sc.AddSingleton<WindowController>();
         sc.AddSingleton<EventHub>();
@@ -36,7 +41,8 @@ public partial class App : Application
             typeof(ParseConnectionStringHandler), typeof(BuildConnectionStringHandler),
             typeof(OpenTabHandler), typeof(DisconnectTabHandler), typeof(DisconnectConnectionHandler),
             typeof(LoadSessionStateHandler), typeof(SaveSessionStateHandler),
-            typeof(ExecuteHandler), typeof(CancelHandler),
+            typeof(ExecuteHandler), typeof(CancelHandler), typeof(GuardResolveHandler),
+            typeof(BeginTranHandler), typeof(CommitTranHandler), typeof(RollbackTranHandler), typeof(ForceCloseHandler),
             typeof(SaveFileHandler), typeof(OpenFileHandler),
             typeof(MinimizeWindowHandler), typeof(ToggleMaximizeWindowHandler), typeof(CloseWindowHandler),
         })
@@ -48,6 +54,16 @@ public partial class App : Application
         sc.AddSingleton<WebViewBridge>();
         sc.AddSingleton<MainWindow>();
         _services = sc.BuildServiceProvider();
+
+        // Conexão fechada: o servidor desfaz a transação; decisões pendentes e contagens deixam de valer.
+        var sessions = _services.GetRequiredService<TabSessionManager>();
+        var guard = _services.GetRequiredService<GuardedRunner>();
+        var tran = _services.GetRequiredService<TransactionService>();
+        sessions.TabDisconnected += id =>
+        {
+            guard.Discard(id);
+            tran.Forget(id);
+        };
 
         MainWindow = _services.GetRequiredService<MainWindow>();
         MainWindow.Show();

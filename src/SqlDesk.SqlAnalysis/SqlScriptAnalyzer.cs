@@ -20,6 +20,7 @@ public static class SqlScriptAnalyzer
         var hits = new List<Hit>();
         var syntaxErrors = new List<AnalysisDiagnostic>();
         var warnings = new List<string>();
+        var writes = false;
 
         foreach (var batch in batches)
         {
@@ -31,7 +32,8 @@ public static class SqlScriptAnalyzer
 
             if (errors.Count == 0 && fragment is not null)
             {
-                hits.AddRange(DangerScanner.Scan(fragment, batch, script, map, depth, warnings));
+                hits.AddRange(DangerScanner.Scan(fragment, batch, script, map, depth, warnings, out var batchWrites));
+                writes |= batchWrites;
                 continue;
             }
 
@@ -50,7 +52,7 @@ public static class SqlScriptAnalyzer
             }
         }
 
-        var analysis = new ScriptAnalysis(batches, hits.Select(h => h.Danger).OrderBy(d => d.Start).ToList(), syntaxErrors, warnings);
+        var analysis = new ScriptAnalysis(batches, hits.Select(h => h.Danger).OrderBy(d => d.Start).ToList(), syntaxErrors, warnings, writes);
         return new CoreResult(analysis, hits);
     }
 

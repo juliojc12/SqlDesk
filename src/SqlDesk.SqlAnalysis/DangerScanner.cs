@@ -21,6 +21,7 @@ internal sealed class DangerScanner : TSqlFragmentVisitor
     private readonly int _depth;
     private readonly List<Hit> _hits = [];
     private readonly List<string> _warnings;
+    private bool _sawWrite;
 
     private DangerScanner(Batch batch, string document, LineMap map, int depth, List<string> warnings)
     {
@@ -31,10 +32,12 @@ internal sealed class DangerScanner : TSqlFragmentVisitor
         _warnings = warnings;
     }
 
-    public static List<Hit> Scan(TSqlFragment fragment, Batch batch, string document, LineMap map, int depth, List<string> warnings)
+    /// <param name="writes">Há UPDATE/DELETE/MERGE (inclusive os com WHERE que filtra): base da recomendação de TRANSACTION.</param>
+    public static List<Hit> Scan(TSqlFragment fragment, Batch batch, string document, LineMap map, int depth, List<string> warnings, out bool writes)
     {
         var scanner = new DangerScanner(batch, document, map, depth, warnings);
         fragment.Accept(scanner);
+        writes = scanner._sawWrite;
         return scanner._hits;
     }
 
@@ -43,6 +46,7 @@ internal sealed class DangerScanner : TSqlFragmentVisitor
     public override void Visit(UpdateStatement node)
     {
         var spec = node.UpdateSpecification;
+        _sawWrite = true;
         var kind = WherePredicate.Classify(spec.WhereClause);
         if (kind == WhereKind.Restrictive) return;
 
@@ -55,6 +59,7 @@ internal sealed class DangerScanner : TSqlFragmentVisitor
     public override void Visit(DeleteStatement node)
     {
         var spec = node.DeleteSpecification;
+        _sawWrite = true;
         var kind = WherePredicate.Classify(spec.WhereClause);
         if (kind == WhereKind.Restrictive) return;
 
@@ -63,6 +68,8 @@ internal sealed class DangerScanner : TSqlFragmentVisitor
             $"DELETE em {target} {Reason(kind)} vai apagar todas as linhas da tabela",
             previewable: spec.OutputClause is null && spec.OutputIntoClause is null);
     }
+
+    public override void Visit(MergeStatement node) => _sawWrite = true;
 
     private static string Reason(WhereKind kind) =>
         kind == WhereKind.Missing ? "sem WHERE" : "com WHERE que não filtra nenhuma linha (não referencia colunas ou é sempre verdadeiro)";

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using Microsoft.Web.WebView2.Core;
+using SqlDesk.Core.Execution;
 using SqlDesk.Host.Bridge;
 using SqlDesk.Host.Handlers;
 
@@ -9,15 +10,33 @@ namespace SqlDesk.Host;
 public partial class MainWindow : Window
 {
     private readonly WebViewBridge _bridge;
+    private readonly WindowController _controller;
+    private readonly TransactionService _transactions;
 
-    public MainWindow(WebViewBridge bridge, WindowController controller)
+    public MainWindow(WebViewBridge bridge, WindowController controller, TransactionService transactions)
     {
         _bridge = bridge;
+        _controller = controller;
+        _transactions = transactions;
         controller.Attach(this);
         InitializeComponent();
         StateChanged += OnStateChanged;
+        Closing += OnClosing;
         SourceInitialized += (_, _) => WorkAreaHook.Install(this);
         Loaded += async (_, _) => await InitWebAsync();
+    }
+
+    /// <summary>
+    /// Com transações abertas, o fechamento (botão, Alt+F4, barra de tarefas) é adiado: o frontend lista as abas e pede
+    /// commit ou rollback de cada uma, e só então chama <c>window.forceClose</c>.
+    /// </summary>
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_controller.AllowClose || !_bridge.IsAttached) return;
+        var open = _transactions.OpenTabs();
+        if (open.Count == 0) return;
+        e.Cancel = true;
+        _bridge.Publish("app.closeRequested", new AppCloseRequestedEvent(open.Select(kv => new OpenTransactionTab(kv.Key, kv.Value)).ToList()));
     }
 
     private void OnStateChanged(object? sender, EventArgs e)

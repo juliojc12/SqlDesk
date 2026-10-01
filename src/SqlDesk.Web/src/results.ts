@@ -9,6 +9,7 @@ import type {
   ColumnInfo,
   DocRange,
   ExecuteResponse,
+  ExecuteStatus,
   MessageKind,
   QueryMessageEvent,
   QueryResultCompletedEvent,
@@ -54,7 +55,7 @@ export interface TabResults {
   nextMessageId: number
   /** Chave do result set exibido, ou MESSAGES_TAB. */
   active: string
-  lastRun: { status: ExecuteResponse['status']; elapsedMs: number; totalRows: number } | null
+  lastRun: { status: ExecuteStatus; elapsedMs: number; totalRows: number } | null
 }
 
 export const emptyResults: TabResults = {
@@ -146,12 +147,14 @@ export function applyEvent(state: TabResults, ev: ResultEvent): TabResults {
 export function finishRun(state: TabResults, executionId: string, response: ExecuteResponse): TabResults {
   if (state.executionId !== executionId) return state
   const producedSets = state.sets.some((s) => s.key.startsWith(`${executionId}:`))
-  const active = response.status === 'nothing' || producedSets ? state.active : MESSAGES_TAB
+  // Nada foi executado (sem texto, ou a execução espera uma resposta do usuário): preserva resultados e rodapé.
+  const untouched = response.status === 'nothing' || response.status === 'needs_confirmation' || response.status === 'advise_transaction'
+  const active = untouched || producedSets ? state.active : MESSAGES_TAB
   return {
     ...state,
     running: false,
     active,
-    lastRun: response.status === 'nothing' ? state.lastRun : { status: response.status, elapsedMs: response.elapsedMs, totalRows: response.totalRows },
+    lastRun: untouched ? state.lastRun : { status: response.status, elapsedMs: response.elapsedMs, totalRows: response.totalRows },
   }
 }
 

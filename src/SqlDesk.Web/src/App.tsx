@@ -6,13 +6,16 @@ import { EditorPane, modelPath } from './components/EditorPane'
 import { ResultsPanel } from './components/ResultsPanel'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
+import { AppCloseDialog, DangerDialog, GuardDialog, TranAdviceBar, TranCloseDialog } from './components/GuardDialogs'
 import { ConnectionPicker, PasswordPrompt, UnsavedDialog } from './components/TabDialogs'
 import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { Toolbar } from './components/Toolbar'
 import { NEUTRAL_COLOR } from './colors'
-import type { ConnectionInfo, QueryStartedEvent } from './contracts'
-import { highlightRange, revealLine, snapshotOf, type EditorSnapshot } from './editorActions'
+import type {
+  AppCloseRequestedEvent, ConnectionInfo, DocRange, GuardExpiredEvent, GuardInfo, QueryStartedEvent, TabConnectionLostEvent, TabTransactionEvent,
+} from './contracts'
+import { highlightRange, revealLine, snapshotOf, wrapInTransaction, type EditorSnapshot } from './editorActions'
 import { monaco } from './monacoSetup'
 import { beginRun, failRun, finishRun, type ResultSet } from './results'
 import { clearResults, getResults, listenToQueryEvents, updateResults, useTabResults } from './resultsStore'
@@ -38,6 +41,17 @@ function storeNumber(key: string, value: number) {
   }
 }
 
+interface RunOpts {
+  newSubTab?: boolean
+  snapshot?: EditorSnapshot
+  noRowLimit?: boolean
+  confirmDangerous?: boolean
+  skipTranAdvice?: boolean
+  /** A chamada vem de um diálogo que acabou de fechar (o estado dele ainda não saiu do ref). */
+  fromDialog?: boolean
+}
+type RunMode = 'current' | 'script'
+
 type Picker = { purpose: 'new-tab' | 'open-file' | 'assign'; title: string; file?: { path: string; name: string; content: string }; tabId?: string }
 
 export default function App() {
@@ -54,6 +68,16 @@ export default function App() {
   const [promptError, setPromptError] = useState<string | undefined>()
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [tranCounts, setTranCounts] = useState<Record<string, number>>({})
+  const [danger, setDanger] = useState<{ tabId: string; mode: RunMode; opts: RunOpts; blocked: { line: number; description: string }[] } | null>(null)
+  const [guardDlg, setGuardDlg] = useState<{ tabId: string; guard: GuardInfo } | null>(null)
+  const [guardBusy, setGuardBusy] = useState(false)
+  const [advice, setAdvice] = useState<{ tabId: string; mode: RunMode; opts: RunOpts; range: DocRange } | null>(null)
+  const [noAdvice, setNoAdvice] = useState<ReadonlySet<string>>(new Set())
+  const [closingTran, setClosingTran] = useState<Tab | null>(null)
+  const [tranBusy, setTranBusy] = useState(false)
+  const [appClose, setAppClose] = useState<{ tabId: string; count: number }[] | null>(null)
+  const [confirmDisconnect, setConfirmDisconnect] = useState<{ message: string; run: () => Promise<void> } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(() => loadNumber('sidebarWidth', 260))
   const [resultsHeight, setResultsHeight] = useState(() => loadNumber('resultsHeight', 260))
@@ -102,9 +126,28 @@ export default function App() {
     const offHighlight = on<QueryStartedEvent>('query.started', (p) => {
       if (p.range) highlightRange(p.tabId, p.range)
     })
+    const offTran = on<TabTransactionEvent>('tab.transaction', (p) =>
+      setTranCounts((m) => (m[p.tabId] === p.count ? m : { ...m, [p.tabId]: p.count })),
+    )
+    const offLost = on<TabConnectionLostEvent>('tab.connectionLost', (p) => {
+      dispatch({ type: 'setStatus', id: p.tabId, status: 'disconnected', message: 'A conexão com o servidor caiu.' })
+      setGuardDlg((g) => (g?.tabId === p.tabId ? null : g))
+      if (p.hadTransaction) setError('A conexão caiu e o servidor desfez a transação aberta (rollback): as alterações não confirmadas foram perdidas.')
+      else setNotice('A conexão com o servidor caiu.')
+    })
+    // Sem resposta em 120 s o backend já fez o rollback; só resta fechar o diálogo e avisar.
+    const offExpired = on<GuardExpiredEvent>('query.guardExpired', (p) => {
+      setGuardDlg((g) => (g?.tabId === p.tabId ? null : g))
+      setNotice(p.message)
+    })
+    const offClose = on<AppCloseRequestedEvent>('app.closeRequested', (p) => setAppClose(p.tabs))
     return () => {
       offResults()
       offHighlight()
+      offTran()
+      offLost()
+      offExpired()
+      offClose()
     }
   }, [])
 
@@ -177,13 +220,28 @@ export default function App() {
     }
   }
 
-  async function disconnectTab(tab: Tab) {
+  function clearTran(tabId: string) {
+    setTranCounts((m) => (m[tabId] ? { ...m, [tabId]: 0 } : m))
+  }
+
+  async function disconnectNow(tab: Tab) {
     try {
       await invoke('tabs.disconnect', { tabId: tab.id })
+      clearTran(tab.id)
       dispatch({ type: 'setStatus', id: tab.id, status: 'disconnected' })
     } catch (e) {
       setError(msg(e))
     }
+  }
+
+  /** Desconectar com transação aberta desfaz tudo (o servidor faz rollback): pede confirmação. */
+  function disconnectTab(tab: Tab) {
+    if ((tranCounts[tab.id] ?? 0) > 0) {
+      setConfirmDisconnect({
+        message: `A aba “${tab.title}” tem uma transação aberta. Desconectar desfaz (rollback) as alterações não confirmadas.`,
+        run: () => disconnectNow(tab),
+      })
+    } else void disconnectNow(tab)
   }
 
   // ---------- Execução ----------
@@ -191,23 +249,79 @@ export default function App() {
    * Pede ao backend para executar. O backend decide o que rodar (seleção, statement sob o cursor ou script) e
    * aplica as travas; aqui só se envia texto, cursor e seleção. Uma aba executa um comando por vez.
    */
-  async function execute(mode: 'current' | 'script', opts: { newSubTab?: boolean; snapshot?: EditorSnapshot; noRowLimit?: boolean } = {}) {
-    const tab = latest.current.activeTab
-    if (!tab || getResults(tab.id).running) return
+  async function execute(mode: RunMode, opts: RunOpts = {}) {
+    const l = latest.current
+    const tab = l.activeTab
+    if (!tab || getResults(tab.id).running || (l.modalOpen && !opts.fromDialog)) return
     if (tab.status !== 'connected') {
       setNotice('Conecte a aba antes de executar.')
       return
     }
+    setAdvice(null)
     const snap = opts.snapshot ?? snapshotOf(tab.id) ?? { text: tab.text, cursor: 0, selectionStart: 0, selectionEnd: 0 }
     const executionId = crypto.randomUUID()
     updateResults(tab.id, (s) => beginRun(s, executionId, snap.text, opts.newSubTab ?? false))
     try {
-      const r = await invoke('query.execute', { tabId: tab.id, executionId, ...snap, mode, noRowLimit: opts.noRowLimit ?? false })
+      const r = await invoke('query.execute', {
+        tabId: tab.id, executionId, ...snap, mode,
+        noRowLimit: opts.noRowLimit ?? false,
+        confirmDangerous: opts.confirmDangerous ?? false,
+        skipTranAdvice: opts.skipTranAdvice ?? l.noAdvice.has(tab.id),
+      })
       updateResults(tab.id, (s) => finishRun(s, executionId, r))
-      if (r.status === 'nothing' && r.message) setNotice(r.message)
-      if (r.status === 'refused' && r.message) setNotice(r.message)
+      // Em caso de nova tentativa (confirmações), reenvia exatamente o mesmo texto, cursor e seleção.
+      const again: RunOpts = { ...opts, snapshot: snap }
+      switch (r.status) {
+        case 'nothing':
+        case 'refused':
+          if (r.message) setNotice(r.message)
+          break
+        case 'needs_confirmation':
+          setDanger({ tabId: tab.id, mode, opts: again, blocked: r.blocked ?? [] })
+          break
+        case 'advise_transaction':
+          if (r.range) setAdvice({ tabId: tab.id, mode, opts: again, range: r.range })
+          break
+        case 'pending_decision':
+          if (r.guard) setGuardDlg({ tabId: tab.id, guard: r.guard })
+          break
+        case 'tran_lost':
+          setNotice('O próprio script encerrou a transação (COMMIT ou ROLLBACK): as alterações não podem mais ser desfeitas por aqui.')
+          break
+      }
     } catch (e) {
       updateResults(tab.id, (s) => failRun(s, executionId, msg(e)))
+    }
+  }
+
+  async function resolveGuard(commit: boolean) {
+    const g = guardDlg
+    if (!g) return
+    setGuardBusy(true)
+    try {
+      await invoke('query.guard.resolve', { tabId: g.tabId, guardId: g.guard.guardId, commit })
+      setGuardDlg(null)
+    } catch (e) {
+      if (e instanceof BridgeCallError && e.detail.code === 'guard_expired') {
+        setGuardDlg(null)
+        setNotice(e.detail.message)
+      } else setError(msg(e))
+    } finally {
+      setGuardBusy(false)
+    }
+  }
+
+  async function tranAction(kind: 'begin' | 'commit' | 'rollback', tab: Tab): Promise<boolean> {
+    setTranBusy(true)
+    try {
+      const r = await invoke(kind === 'begin' ? 'tran.begin' : kind === 'commit' ? 'tran.commit' : 'tran.rollback', { tabId: tab.id })
+      setTranCounts((m) => ({ ...m, [tab.id]: r.tranCount }))
+      return true
+    } catch (e) {
+      setError(msg(e))
+      return false
+    } finally {
+      setTranBusy(false)
     }
   }
 
@@ -254,13 +368,21 @@ export default function App() {
   function closeNow(tab: Tab) {
     dispatch({ type: 'close', id: tab.id })
     clearResults(tab.id)
+    clearTran(tab.id)
+    setAdvice((a) => (a?.tabId === tab.id ? null : a))
     void invoke('tabs.disconnect', { tabId: tab.id }).catch((e) => setError(msg(e)))
     monaco.editor.getModel(monaco.Uri.parse(modelPath(tab.id)))?.dispose()
   }
 
-  function requestClose(tab: Tab) {
+  function closeAfterTran(tab: Tab) {
     if (isDirty(tab)) setClosing(tab)
     else closeNow(tab)
+  }
+
+  function requestClose(tab: Tab) {
+    // Fechar uma aba com transação aberta pede a decisão (Commit / Rollback / Cancelar) antes de qualquer outra pergunta.
+    if ((tranCounts[tab.id] ?? 0) > 0) setClosingTran(tab)
+    else closeAfterTran(tab)
   }
 
   async function saveTab(tab: Tab, saveAs = false): Promise<boolean> {
@@ -313,13 +435,28 @@ export default function App() {
     }
   }
 
-  async function disconnectConnection(c: ConnectionInfo) {
+  async function disconnectConnectionNow(c: ConnectionInfo) {
     try {
       await invoke('connections.disconnect', { id: c.id })
-      tabs.filter((t) => t.connectionId === c.id && t.status === 'connected').forEach((t) => dispatch({ type: 'setStatus', id: t.id, status: 'disconnected' }))
+      tabs
+        .filter((t) => t.connectionId === c.id && t.status === 'connected')
+        .forEach((t) => {
+          clearTran(t.id)
+          dispatch({ type: 'setStatus', id: t.id, status: 'disconnected' })
+        })
     } catch (e) {
       setError(msg(e))
     }
+  }
+
+  function disconnectConnection(c: ConnectionInfo) {
+    const open = tabs.filter((t) => t.connectionId === c.id && (tranCounts[t.id] ?? 0) > 0)
+    if (open.length > 0) {
+      setConfirmDisconnect({
+        message: `${open.length === 1 ? 'Uma aba desta conexão tem' : `${open.length} abas desta conexão têm`} transação aberta. Desconectar desfaz (rollback) as alterações não confirmadas.`,
+        run: () => disconnectConnectionNow(c),
+      })
+    } else void disconnectConnectionNow(c)
   }
 
   async function confirmDelete() {
@@ -338,8 +475,9 @@ export default function App() {
   }
 
   // ---------- Atalhos globais (fase de captura: antes do Monaco) ----------
-  const latest = useRef({ newTab, requestClose, saveTab, openFile, activeTab, execute, stop })
-  latest.current = { newTab, requestClose, saveTab, openFile, activeTab, execute, stop }
+  const modalOpen = !!(danger || guardDlg || closingTran || appClose || confirmDisconnect)
+  const latest = useRef({ newTab, requestClose, saveTab, openFile, activeTab, execute, stop, modalOpen, noAdvice })
+  latest.current = { newTab, requestClose, saveTab, openFile, activeTab, execute, stop, modalOpen, noAdvice }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const l = latest.current
@@ -401,6 +539,10 @@ export default function App() {
     )
   }
 
+  const tranTabs = useMemo(
+    () => new Set(tabs.filter((t) => (tranCounts[t.id] ?? 0) > 0).map((t) => t.id)),
+    [tabs, tranCounts],
+  )
   const promptTab = tabs.find((t) => t.id === promptTabId) ?? null
   const promptConn = connById(promptTab?.connectionId ?? null)
 
@@ -439,6 +581,7 @@ export default function App() {
             }}
             onRename={(id, title) => dispatch({ type: 'rename', id, title })}
             onNew={newTab}
+            tranTabs={tranTabs}
           />
 
           {error && (
@@ -470,6 +613,8 @@ export default function App() {
                 onRun={() => void execute('current')}
                 onRunScript={() => void execute('script')}
                 onStop={stop}
+                tranCount={tranCounts[activeTab.id] ?? 0}
+                onBeginTran={() => void tranAction('begin', activeTab)}
               />
               {(activeTab.status === 'error' || activeTab.status === 'no-connection') && activeTab.statusMessage && (
                 <div role="alert" className="flex items-center gap-4 border-b border-line bg-hover px-4 py-2 text-sm">
@@ -483,12 +628,29 @@ export default function App() {
                 </div>
               )}
               <div className="flex min-h-0 flex-1 flex-col">
+                {advice && advice.tabId === activeTab.id && (
+                  <TranAdviceBar
+                    onWrap={() => {
+                      wrapInTransaction(advice.tabId, advice.range)
+                      setAdvice(null)
+                    }}
+                    onRunAnyway={() => void execute(advice.mode, { ...advice.opts, skipTranAdvice: true })}
+                    onNeverAsk={() => {
+                      setNoAdvice((cur) => new Set(cur).add(advice.tabId))
+                      void execute(advice.mode, { ...advice.opts, skipTranAdvice: true })
+                    }}
+                  />
+                )}
                 <div className="min-h-0 flex-1 bg-surface">
                   <EditorPane
                     tabId={activeTab.id}
                     initialText={activeTab.text}
                     theme={theme}
-                    onChange={(text) => dispatch({ type: 'setText', id: activeTab.id, text })}
+                    onChange={(text) => {
+                      dispatch({ type: 'setText', id: activeTab.id, text })
+                      // O texto mudou: a recomendação (que guarda o trecho antigo) deixa de valer.
+                      setAdvice((a) => (a?.tabId === activeTab.id ? null : a))
+                    }}
                   />
                 </div>
                 <div role="separator" aria-orientation="horizontal" className="h-1 shrink-0 cursor-row-resize border-t border-line hover:bg-line" onMouseDown={startResultsResize} />
@@ -512,7 +674,16 @@ export default function App() {
           )}
         </main>
       </div>
-      <StatusBar tab={activeTab} connection={activeConn} results={results} />
+      <StatusBar
+        tab={activeTab}
+        connection={activeConn}
+        results={results}
+        openTranTabs={tranTabs.size}
+        activeTran={!!activeTab && tranTabs.has(activeTab.id)}
+        tranBusy={tranBusy || results.running}
+        onCommit={() => activeTab && void tranAction('commit', activeTab)}
+        onRollback={() => activeTab && void tranAction('rollback', activeTab)}
+      />
 
       {editing && (
         <ConnectionDialog
@@ -530,6 +701,72 @@ export default function App() {
         <ConfirmDialog title="Excluir conexão" confirmLabel="Excluir" danger onConfirm={() => void confirmDelete()} onCancel={() => setDeleting(null)}>
           Excluir a conexão <strong className="text-fg">{deleting.name}</strong>? A senha salva também será removida. As abas dela continuam abertas, sem conexão.
         </ConfirmDialog>
+      )}
+      {danger && (
+        <DangerDialog
+          blocked={danger.blocked}
+          onCancel={() => setDanger(null)}
+          onContinue={() => {
+            const d = danger
+            setDanger(null)
+            void execute(d.mode, { ...d.opts, confirmDangerous: true, fromDialog: true })
+          }}
+        />
+      )}
+      {guardDlg && (
+        <GuardDialog
+          guard={guardDlg.guard}
+          busy={guardBusy}
+          onCommit={() => void resolveGuard(true)}
+          onRollback={() => void resolveGuard(false)}
+        />
+      )}
+      {closingTran && (
+        <TranCloseDialog
+          title={closingTran.title}
+          busy={tranBusy}
+          onCancel={() => setClosingTran(null)}
+          onCommit={async () => {
+            const t = closingTran
+            if (await tranAction('commit', t)) {
+              setClosingTran(null)
+              closeAfterTran(t)
+            }
+          }}
+          onRollback={async () => {
+            const t = closingTran
+            if (await tranAction('rollback', t)) {
+              setClosingTran(null)
+              closeAfterTran(t)
+            }
+          }}
+        />
+      )}
+      {confirmDisconnect && (
+        <ConfirmDialog
+          title="Desconectar"
+          confirmLabel="Desconectar e desfazer"
+          danger
+          onCancel={() => setConfirmDisconnect(null)}
+          onConfirm={() => {
+            const c = confirmDisconnect
+            setConfirmDisconnect(null)
+            void c.run()
+          }}
+        >
+          {confirmDisconnect.message}
+        </ConfirmDialog>
+      )}
+      {appClose && (
+        <AppCloseDialog
+          tabs={appClose.map((t) => ({ ...t, title: tabs.find((x) => x.id === t.tabId)?.title ?? 'Aba' }))}
+          onCancel={() => setAppClose(null)}
+          onDecide={async (tabId, commit) => {
+            const r = await invoke(commit ? 'tran.commit' : 'tran.rollback', { tabId })
+            setTranCounts((m) => ({ ...m, [tabId]: r.tranCount }))
+          }}
+          onDone={() => void invoke('window.forceClose', {})}
+        />
       )}
       {closing && (
         <UnsavedDialog

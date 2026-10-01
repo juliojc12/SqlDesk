@@ -14,7 +14,7 @@ public sealed class TabNotConnectedException(string message) : Exception(message
 /// Executa batches já analisados na conexão da aba, um comando por vez por aba. Não decide nada sobre
 /// segurança: quem chama passa o texto por <c>SqlScriptAnalyzer.Analyze</c> antes.
 /// </summary>
-public sealed class QueryRunner(TabSessionManager sessions)
+public sealed class QueryRunner(TabSessionManager sessions) : IBatchRunner
 {
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _running = new();
 
@@ -51,6 +51,7 @@ public sealed class QueryRunner(TabSessionManager sessions)
         long totalRows = 0;
         var resultIndex = 0;
         var status = RunStatus.Completed;
+        int? errorNumber = null;
 
         void OnInfo(object _, SqlInfoMessageEventArgs e)
         {
@@ -73,8 +74,9 @@ public sealed class QueryRunner(TabSessionManager sessions)
                     cmd.CommandTimeout = timeout;
                     cmd.StatementCompleted += (_, e) =>
                     {
-                        if (e.RecordCount >= 0)
-                            sink.Message(MessageKinds.Rows, $"({e.RecordCount} {(e.RecordCount == 1 ? "linha afetada" : "linhas afetadas")})", null);
+                        if (e.RecordCount < 0) return;
+                        sink.Message(MessageKinds.Rows, $"({e.RecordCount} {(e.RecordCount == 1 ? "linha afetada" : "linhas afetadas")})", null);
+                        sink.StatementCompleted(e.RecordCount);
                     };
 
                     await using var reader = await cmd.ExecuteReaderAsync(cts.Token);
@@ -98,6 +100,7 @@ public sealed class QueryRunner(TabSessionManager sessions)
                 catch (SqlException ex)
                 {
                     status = RunStatus.Error;
+                    errorNumber = ex.Number;
                     foreach (SqlError err in ex.Errors)
                     {
                         // Dentro de procedure a linha é relativa a ela, não ao documento.
@@ -122,7 +125,7 @@ public sealed class QueryRunner(TabSessionManager sessions)
 
         watch.Stop();
         sink.Message(MessageKinds.Timing, $"Tempo de execução: {FormatElapsed(watch.Elapsed)}", null);
-        return new RunSummary(status, watch.ElapsedMilliseconds, totalRows);
+        return new RunSummary(status, watch.ElapsedMilliseconds, totalRows, errorNumber);
     }
 
     public static string FormatElapsed(TimeSpan t) =>

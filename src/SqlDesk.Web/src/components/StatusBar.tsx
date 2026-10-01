@@ -19,10 +19,26 @@ const RUN_LABEL: Record<NonNullable<TabResults['lastRun']>['status'], string> = 
   cancelled: 'cancelado',
   refused: 'bloqueado',
   nothing: '',
+  needs_confirmation: '',
+  advise_transaction: '',
+  pending_decision: 'aguardando commit ou rollback',
+  tran_lost: 'transação encerrada pelo script',
 }
 
 /** Barra de status tingida com a cor da conexão da aba ativa; o texto mantém contraste >= 4,5:1. */
-export function StatusBar({ tab, connection, results }: { tab: Tab | null; connection: ConnectionInfo | null; results: TabResults }) {
+interface Props {
+  tab: Tab | null
+  connection: ConnectionInfo | null
+  results: TabResults
+  /** Quantas abas têm transação aberta, e se a aba ativa é uma delas. */
+  openTranTabs: number
+  activeTran: boolean
+  tranBusy: boolean
+  onCommit: () => void
+  onRollback: () => void
+}
+
+export function StatusBar({ tab, connection, results, openTranTabs, activeTran, tranBusy, onCommit, onRollback }: Props) {
   const color = connection?.color ?? NEUTRAL_COLOR
   const { bg, fg } = tintedSurface(color)
   const run = results.lastRun
@@ -48,6 +64,18 @@ export function StatusBar({ tab, connection, results }: { tab: Tab | null; conne
         </>
       ) : (
         <span>Pronto</span>
+      )}
+      {openTranTabs > 0 && (
+        <span className="ml-auto flex shrink-0 items-center gap-2 whitespace-nowrap">
+          <span className="rounded bg-amber-500 px-1.5 text-xs font-bold leading-5 text-black">TRAN</span>
+          {openTranTabs} {openTranTabs === 1 ? 'aba com transação aberta' : 'abas com transação aberta'}
+          {activeTran && (
+            <>
+              <button disabled={tranBusy} onClick={onCommit} className="rounded border border-current/40 px-2 text-sm font-medium hover:bg-black/10 disabled:opacity-50">Commit</button>
+              <button disabled={tranBusy} onClick={onRollback} className="rounded border border-current/40 px-2 text-sm font-medium hover:bg-black/10 disabled:opacity-50">Rollback</button>
+            </>
+          )}
+        </span>
       )}
     </footer>
   )

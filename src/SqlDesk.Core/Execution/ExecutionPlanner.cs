@@ -9,14 +9,31 @@ public abstract record ExecutionPlan
     /// <summary>Nada a executar (cursor numa linha em branco, texto vazio...). Nada vai ao banco.</summary>
     public sealed record Nothing(string Message) : ExecutionPlan;
 
-    /// <summary>A análise de segurança barrou o texto. Nada vai ao banco.</summary>
+    /// <summary>Recusado sem possibilidade de confirmar (ex.: <c>GO n</c>). Nada vai ao banco.</summary>
     public sealed record Refused(string Message, IReadOnlyList<BlockedInfo> Blocked) : ExecutionPlan;
 
+    /// <param name="Text">O trecho do documento que será executado (já delimitado por seleção/cursor/script).</param>
     /// <param name="BaseOffset">Offset, no documento, onde o texto analisado começa.</param>
     /// <param name="BaseLine">Linha (base 1), no documento, onde o texto analisado começa.</param>
     /// <param name="Highlight">Trecho a destacar no editor (statement achado sob o cursor); nulo para seleção e script.</param>
+    /// <param name="HasWrites">Contém UPDATE/DELETE/MERGE (com filtro): base da recomendação de TRANSACTION.</param>
     public sealed record Runnable(
-        IReadOnlyList<Batch> Batches, int BaseOffset, int BaseLine, DocRange? Highlight, IReadOnlyList<string> Warnings) : ExecutionPlan;
+        string Text, IReadOnlyList<Batch> Batches, int BaseOffset, int BaseLine, DocRange? Highlight,
+        IReadOnlyList<string> Warnings, bool HasWrites) : ExecutionPlan
+    {
+        public DocRange Range => new(BaseOffset, Text.Length);
+    }
+
+    /// <summary>
+    /// A análise encontrou statements que exigem a dupla confirmação. Nada vai ao banco até o usuário confirmar; depois,
+    /// a execução acontece dentro de uma transação que ainda pode ser desfeita.
+    /// </summary>
+    public sealed record Dangerous(
+        string Text, IReadOnlyList<Batch> Batches, int BaseOffset, int BaseLine, DocRange? Highlight,
+        IReadOnlyList<DangerousStatement> Dangers, IReadOnlyList<BlockedInfo> Blocked, IReadOnlyList<string> Warnings) : ExecutionPlan
+    {
+        public DocRange Range => new(BaseOffset, Text.Length);
+    }
 }
 
 /// <summary>
@@ -54,15 +71,6 @@ public static class ExecutionPlanner
         var baseLine = 1 + text.AsSpan(0, start).Count('\n');
         var analysis = SqlScriptAnalyzer.Analyze(sub);
 
-        if (!analysis.IsSafe)
-        {
-            var blocked = analysis.Dangers.Select(d => new BlockedInfo(baseLine - 1 + d.Line, d.Description)).ToList();
-            return new ExecutionPlan.Refused(
-                "Execução bloqueada: o texto contém comandos que exigem confirmação (UPDATE/DELETE sem WHERE, TRUNCATE ou DROP). " +
-                "O fluxo de dupla confirmação com transação ainda não existe; por segurança, nada foi enviado ao banco.",
-                blocked);
-        }
-
         // Repetir um batch (GO n) é arriscado para qualquer escrita; por segurança, não é executado.
         if (analysis.Batches.FirstOrDefault(b => b.RepeatCount > 1) is { } repeated)
         {
@@ -71,6 +79,12 @@ public static class ExecutionPlanner
                 [new BlockedInfo(baseLine - 1 + repeated.StartLine, $"GO {repeated.RepeatCount}")]);
         }
 
-        return new ExecutionPlan.Runnable(analysis.Batches, start, baseLine, highlight, analysis.Warnings);
+        if (!analysis.IsSafe)
+        {
+            var blocked = analysis.Dangers.Select(d => new BlockedInfo(baseLine - 1 + d.Line, d.Description)).ToList();
+            return new ExecutionPlan.Dangerous(sub, analysis.Batches, start, baseLine, highlight, analysis.Dangers, blocked, analysis.Warnings);
+        }
+
+        return new ExecutionPlan.Runnable(sub, analysis.Batches, start, baseLine, highlight, analysis.Warnings, analysis.HasWrites);
     }
 }

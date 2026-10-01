@@ -59,3 +59,21 @@ export function revealLine(tabId: string, line: number) {
   editor.revealLineInCenter(lineNumber)
   editor.focus()
 }
+
+/**
+ * "Envolver em transação": insere `BEGIN TRAN;` antes do trecho e, depois dele, as linhas comentadas
+ * `-- COMMIT;` e `-- ROLLBACK;`. Não executa nada: o usuário revisa e roda quando quiser.
+ */
+export function wrapInTransaction(tabId: string, range: DocRange) {
+  const shown = editorShowing(tabId)
+  if (!shown) return
+  const { model, editor } = shown
+  const start = model.getPositionAt(range.start)
+  const end = model.getPositionAt(range.start + range.length)
+  const at = (p: { lineNumber: number; column: number }) => new monaco.Range(p.lineNumber, p.column, p.lineNumber, p.column)
+  editor.executeEdits('sqldesk-wrap-transaction', [
+    { range: at(end), text: '\n-- COMMIT;\n-- ROLLBACK;' },
+    { range: at(start), text: 'BEGIN TRAN;\n' },
+  ])
+  editor.focus()
+}

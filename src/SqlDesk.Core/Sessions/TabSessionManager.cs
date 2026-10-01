@@ -27,6 +27,9 @@ public sealed class TabSessionManager : IAsyncDisposable
 
     public TabSessionManager(ConnectionStore store) => _store = store;
 
+    /// <summary>A conexão da aba foi fechada (o servidor desfaz qualquer transação aberta nela).</summary>
+    public event Action<string>? TabDisconnected;
+
     public bool IsConnected(string tabId) => _sessions.ContainsKey(tabId);
 
     public SqlConnection? GetConnection(string tabId) => _sessions.TryGetValue(tabId, out var s) ? s.Connection : null;
@@ -72,7 +75,11 @@ public sealed class TabSessionManager : IAsyncDisposable
     /// <summary>Fecha a conexão mas mantém a aba (o texto não se perde).</summary>
     public async Task DisconnectAsync(string tabId)
     {
-        if (_sessions.TryRemove(tabId, out var s)) await s.Connection.DisposeAsync();
+        if (_sessions.TryRemove(tabId, out var s))
+        {
+            TabDisconnected?.Invoke(tabId);
+            await s.Connection.DisposeAsync();
+        }
     }
 
     public async Task DisconnectConnectionAsync(Guid connectionId)

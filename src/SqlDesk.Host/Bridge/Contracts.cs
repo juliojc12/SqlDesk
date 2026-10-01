@@ -50,13 +50,36 @@ public sealed record OpenFileResponse(bool Cancelled, string? Path, string? Name
 /// <param name="Mode">"current" (seleção ou statement sob o cursor) ou "script" (documento inteiro).</param>
 public sealed record ExecuteRequest(
     string TabId, string ExecutionId, string Text, int Cursor, int SelectionStart, int SelectionEnd,
-    string Mode, bool NoRowLimit);
+    string Mode, bool NoRowLimit, bool ConfirmDangerous = false, bool SkipTranAdvice = false);
 
-/// <param name="Status">completed | error | cancelled | refused | nothing. Não usar o nome "error" para campos: colide com o envelope de erro.</param>
 public sealed record BlockedStatement(int Line, string Description);
 
+/// <param name="Status">
+/// completed | error | cancelled | refused | nothing | needs_confirmation (primeira confirmação: nada foi executado) |
+/// advise_transaction (barra de recomendação: nada foi executado) | pending_decision (segunda confirmação: executado
+/// dentro de transação, aguardando commit ou rollback) | tran_lost. Não usar o nome "error" para campos: colide com o envelope de erro.
+/// </param>
+/// <param name="Range">Trecho do documento que seria/foi executado (para "Envolver em transação").</param>
 public sealed record ExecuteResponse(
-    string Status, long ElapsedMs, long TotalRows, string? Message, IReadOnlyList<BlockedStatement>? Blocked);
+    string Status, long ElapsedMs, long TotalRows, string? Message, IReadOnlyList<BlockedStatement>? Blocked,
+    SqlDesk.Core.Execution.DocRange? Range = null, SqlDesk.Core.Execution.GuardInfo? Guard = null);
+
+public sealed record GuardResolveRequest(string TabId, string GuardId, bool Commit);
+
+public sealed record GuardResolveResponse(bool Committed, string Message);
+
+public sealed record TranResponse(int TranCount);
+
+// ---- Transações (eventos) ----
+public sealed record TabTransactionEvent(string TabId, int Count);
+
+public sealed record TabConnectionLostEvent(string TabId, bool HadTransaction);
+
+public sealed record GuardExpiredEvent(string TabId, string ExecutionId, string Message);
+
+public sealed record OpenTransactionTab(string TabId, int Count);
+
+public sealed record AppCloseRequestedEvent(IReadOnlyList<OpenTransactionTab> Tabs);
 
 public sealed record QueryStartedEvent(string TabId, string ExecutionId, SqlDesk.Core.Execution.DocRange? Range);
 

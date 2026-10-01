@@ -11,9 +11,11 @@ interface Props {
   onClose: (id: string) => void
   onRename: (id: string, title: string) => void
   onNew: () => void
+  /** Abas com transação aberta (selo TRAN). */
+  tranTabs: ReadonlySet<string>
 }
 
-export function TabBar({ tabs, activeId, connections, onActivate, onClose, onRename, onNew }: Props) {
+export function TabBar({ tabs, activeId, connections, onActivate, onClose, onRename, onNew, tranTabs }: Props) {
   const [renaming, setRenaming] = useState<string | null>(null)
   const activeRef = useRef<HTMLDivElement>(null)
 
@@ -56,6 +58,9 @@ export function TabBar({ tabs, activeId, connections, onActivate, onClose, onRen
                 />
               ) : (
                 <span className="truncate">{t.title}</span>
+              )}
+              {tranTabs.has(t.id) && (
+                <span className="shrink-0 rounded bg-amber-500 px-1 text-[10px] font-bold leading-4 text-black" title="Transação aberta nesta aba" aria-label="Transação aberta">TRAN</span>
               )}
               {isDirty(t) && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-fg" title="Alterações não salvas" aria-label="Alterações não salvas" />}
               <button
