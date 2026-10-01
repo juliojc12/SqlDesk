@@ -791,6 +791,7 @@ export default function App() {
                     canLoadAll={activeTab.status === 'connected' && !results.running}
                     onExport={requestExport}
                     exportBusy={exportJob?.status === 'running'}
+                    onStop={stop}
                   />
                 </div>
               </div>

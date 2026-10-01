@@ -48,6 +48,8 @@ export interface TabResults {
   runText: string
   /** A execução em andamento preserva os resultados anteriores (Ctrl+\). */
   keepPrevious: boolean
+  /** Quando a execução em andamento começou (ms), para o contador do indicador de carregamento. */
+  startedAt: number | null
   sets: ResultSet[]
   messages: ResultMessage[]
   /** Numeração de "Resultado N". */
@@ -63,6 +65,7 @@ export const emptyResults: TabResults = {
   running: false,
   runText: '',
   keepPrevious: false,
+  startedAt: null,
   sets: [],
   messages: [],
   counter: 0,
@@ -79,8 +82,8 @@ export type ResultEvent =
   | { type: 'message'; payload: QueryMessageEvent }
 
 /** Marca o início do pedido de execução. Os resultados antigos só são trocados quando o backend confirma (`started`). */
-export function beginRun(prev: TabResults, executionId: string, runText: string, keepPrevious: boolean): TabResults {
-  return { ...prev, executionId, running: true, runText, keepPrevious }
+export function beginRun(prev: TabResults, executionId: string, runText: string, keepPrevious: boolean, now = Date.now()): TabResults {
+  return { ...prev, executionId, running: true, runText, keepPrevious, startedAt: now }
 }
 
 const setKey = (executionId: string, index: number) => `${executionId}:${index}`

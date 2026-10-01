@@ -66,3 +66,8 @@ input, textarea { user-select: text; }
 
 /* Trecho executado, destacado por instantes no editor. */
 .exec-highlight { background: color-mix(in srgb, var(--fg) 22%, transparent); border-radius: 2px; }
+
+/* Faixa indeterminada do resultado em execução. Sem animação para quem pediu menos movimento no sistema. */
+@keyframes running-bar { from { left: -35%; } to { left: 100%; } }
+.running-bar { animation: running-bar 1.1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .running-bar { animation: none; left: 0; width: 100%; opacity: 0.6; } }

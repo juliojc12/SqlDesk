@@ -131,4 +131,9 @@ describe('resultados', () => {
     expect(s.sets[0].rows).toBe(arr)
     expect(s.sets[0].rowCount).toBe(10_000)
   })
+
+  it('guarda quando a execução começou, para o contador do carregamento', () => {
+    expect(beginRun(emptyResults, 'e1', 'x', false, 1234).startedAt).toBe(1234)
+    expect(emptyResults.startedAt).toBeNull()
+  })
 })

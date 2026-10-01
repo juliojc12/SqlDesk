@@ -3,6 +3,7 @@ import { identityView, type GridView } from '../exporter'
 import { getCsvDelimiter } from '../settings'
 import { MESSAGES_TAB, type ResultSet, type TabResults } from '../results'
 import { DataGrid } from './DataGrid'
+import { RunningBar, RunningIndicator } from './RunningIndicator'
 
 interface Props {
   results: TabResults
@@ -15,6 +16,7 @@ interface Props {
   /** Exporta o resultado ativo; a grade informa a ordem de colunas e a ordenação atuais. */
   onExport: (format: 'csv' | 'xlsx', set: ResultSet, view: GridView) => void
   exportBusy: boolean
+  onStop: () => void
 }
 
 function loadCopyWithHeader(): boolean {
@@ -51,7 +53,7 @@ function Messages({ results, onJumpToLine }: Pick<Props, 'results' | 'onJumpToLi
   )
 }
 
-export function ResultsPanel({ results, color, onActivate, onJumpToLine, onLoadAll, canLoadAll, onExport, exportBusy }: Props) {
+export function ResultsPanel({ results, color, onActivate, onJumpToLine, onLoadAll, canLoadAll, onExport, exportBusy, onStop }: Props) {
   const [copyWithHeader, setCopyWithHeader] = useState(loadCopyWithHeader)
   // A grade informa a visão (colunas e ordenação) por um ref: mudar de coluna ou ordenar não deve renderizar o painel inteiro.
   const view = useRef<GridView | null>(null)
@@ -62,6 +64,9 @@ export function ResultsPanel({ results, color, onActivate, onJumpToLine, onLoadA
   const showMessages = results.active === MESSAGES_TAB || !active
   const canExport = !showMessages && !!active && active.done && !exportBusy && !results.running
   const hasError = results.messages.some((m) => m.kind === 'error')
+  // Rodando e ainda sem nada desta execução para mostrar: em vez de resultado antigo ou "Nenhuma mensagem", o indicador de carregamento.
+  const producedYet = results.sets.some((s) => s.key.startsWith(`${results.executionId}:`))
+  const waiting = results.running && !producedYet && !(results.keepPrevious && results.sets.length > 0)
 
   const tabClass = (on: boolean) =>
     `-mb-px flex items-center gap-2 border-b-2 px-1 py-2 text-[15px] ${on ? 'text-fg' : 'border-transparent text-muted hover:text-fg'}`
@@ -108,8 +113,11 @@ export function ResultsPanel({ results, color, onActivate, onJumpToLine, onLoadA
         </div>
       </div>
 
+      {results.running && <RunningBar color={color} />}
       <div className="min-h-0 flex-1">
-        {showMessages ? (
+        {waiting ? (
+          <RunningIndicator since={results.startedAt} color={color} onStop={onStop} />
+        ) : showMessages ? (
           <Messages results={results} onJumpToLine={onJumpToLine} />
         ) : (
           <DataGrid
