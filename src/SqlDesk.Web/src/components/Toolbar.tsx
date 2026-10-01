@@ -24,7 +24,7 @@ interface Props {
   onRefreshMetadata: () => void
 }
 
-const ghost = 'flex h-8 items-center gap-2 rounded-md px-3 text-sm text-fg enabled:hover:bg-hover disabled:opacity-40'
+const ghost = 'flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 text-sm text-fg enabled:hover:bg-hover disabled:opacity-40'
 
 export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop, tranCount, onBeginTran, autoAlias, onToggleAlias, metaLoading, onRefreshMetadata, onFormat }: Props) {
   const connected = tab.status === 'connected'
@@ -86,7 +86,7 @@ export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onD
         Alias {autoAlias ? 'ligado' : 'desligado'}
       </button>
 
-      <div className="ml-auto flex items-center gap-3 text-[15px] text-muted">
+      <div className="ml-auto flex min-w-0 items-center gap-3 text-[15px] text-muted">
         {tab.connectionId === null ? (
           <button className={ghost} onClick={onPickConnection}>Escolher conexão…</button>
         ) : (
@@ -96,7 +96,7 @@ export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onD
             ) : (
               tab.status !== 'connecting' && <button className={ghost} onClick={onConnect}>Conectar</button>
             )}
-            <span>{connection ? `${connection.name} · ${connection.settings.server}` : ''}</span>
+            <span className="min-w-0 truncate">{connection ? `${connection.name} · ${connection.settings.server}` : ''}</span>
           </>
         )}
       </div>
