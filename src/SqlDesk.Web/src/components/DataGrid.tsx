@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Cell, ColumnInfo } from '../contracts'
 import type { GridView } from '../exporter'
-import { toTsv } from '../gridCopy'
+import { toTsvSelection } from '../gridCopy'
+import {
+  dragTo, emptySelection, hasSelection, isColumnSelected, isSelected, moveFocus, pressCell, pressColumn, pressRow, selectAll, selectedCount,
+  type Mods, type Selection,
+} from '../gridSelection'
 import { nextSort, sortedOrder, type SortKey } from '../gridSort'
 import type { ResultSet } from '../results'
 
@@ -10,9 +14,6 @@ const HEADER_H = 34
 const ROWNUM_W = 56
 const OVERSCAN = 6
 const MIN_COL_W = 48
-
-interface Pos { r: number; c: number }
-interface Sel { anchor: Pos; focus: Pos }
 
 interface Props {
   set: ResultSet
@@ -68,7 +69,7 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
   const [sort, setSort] = useState<SortKey[]>([])
   const [colOrder, setColOrder] = useState<number[]>(() => columns.map((_, i) => i))
   const [widths, setWidths] = useState<number[]>(() => columns.map((c, i) => initialWidth(c, rows, i)))
-  const [sel, setSel] = useState<Sel | null>(null)
+  const [sel, setSel] = useState<Selection>(emptySelection)
   const autosized = useRef(rows.length > 0)
   const dragging = useRef(false)
   const dragFrom = useRef<number | null>(null)
@@ -108,17 +109,13 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
   const first = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN)
   const last = Math.min(total - 1, Math.ceil((scrollTop + viewH) / ROW_H) + OVERSCAN)
 
-  const rect = sel && {
-    r0: Math.min(sel.anchor.r, sel.focus.r), r1: Math.max(sel.anchor.r, sel.focus.r),
-    c0: Math.min(sel.anchor.c, sel.focus.c), c1: Math.max(sel.anchor.c, sel.focus.c),
+  function copy(withHeader: boolean) {
+    if (!hasSelection(sel)) return
+    void copyText(toTsvSelection(rows, columns.map((c) => c.name), (r) => order[r], colOrder, sel, total, withHeader))
   }
 
-  function copy(withHeader: boolean) {
-    if (!rect) return
-    const rowIdx = Array.from({ length: rect.r1 - rect.r0 + 1 }, (_, k) => order[rect.r0 + k])
-    const colIdx = colOrder.slice(rect.c0, rect.c1 + 1)
-    void copyText(toTsv(rows, columns.map((c) => c.name), rowIdx, colIdx, withHeader))
-  }
+  /** Ctrl (ou Cmd) soma/tira; Shift estende. */
+  const modsOf = (e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): Mods => ({ ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })
 
   const scrollIntoView = (r: number) => {
     const el = scroller.current
@@ -128,10 +125,10 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
     else if (top + ROW_H > el.scrollTop + el.clientHeight - HEADER_H) el.scrollTop = top + ROW_H - el.clientHeight + HEADER_H
   }
 
-  /** Seleciona todas as linhas da coluna (em posição de exibição); com Shift, estende a partir da coluna já selecionada. */
-  function selectColumn(position: number, extend: boolean) {
+  /** Clique no título: seleciona todas as linhas da coluna (Shift estende; Ctrl soma ou tira outra coluna). */
+  function selectColumn(position: number, mods: Mods) {
     if (total === 0) return
-    setSel((cur) => ({ anchor: { r: 0, c: extend && cur ? cur.anchor.c : position }, focus: { r: total - 1, c: position } }))
+    setSel((cur) => pressColumn(cur, position, total, mods))
     scroller.current?.focus()
   }
 
@@ -142,27 +139,27 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
       copy(e.shiftKey ? true : copyWithHeader)
     } else if (e.ctrlKey && key === 'a') {
       e.preventDefault()
-      if (total > 0) setSel({ anchor: { r: 0, c: 0 }, focus: { r: total - 1, c: columns.length - 1 } })
-    } else if (key.startsWith('arrow') && sel) {
+      setSel(selectAll(total, columns.length))
+    } else if (key.startsWith('arrow') && sel.focus) {
       e.preventDefault()
       const dr = key === 'arrowdown' ? 1 : key === 'arrowup' ? -1 : 0
       const dc = key === 'arrowright' ? 1 : key === 'arrowleft' ? -1 : 0
-      const focus = { r: Math.min(total - 1, Math.max(0, sel.focus.r + dr)), c: Math.min(columns.length - 1, Math.max(0, sel.focus.c + dc)) }
-      setSel({ anchor: e.shiftKey ? sel.anchor : focus, focus })
-      scrollIntoView(focus.r)
+      const next = moveFocus(sel, dr, dc, e.shiftKey, total, columns.length)
+      setSel(next)
+      if (next.focus) scrollIntoView(next.focus.r)
     }
   }
 
   function onCellDown(e: React.MouseEvent, r: number, c: number) {
     if (e.button !== 0) return
-    dragging.current = true
-    setSel((cur) => (e.shiftKey && cur ? { anchor: cur.anchor, focus: { r, c } } : { anchor: { r, c }, focus: { r, c } }))
+    const result = pressCell(sel, { r, c }, modsOf(e))
+    dragging.current = result.dragging
+    setSel(result.sel)
   }
 
   function onRowNumberDown(e: React.MouseEvent, r: number) {
     if (e.button !== 0) return
-    const lastCol = columns.length - 1
-    setSel((cur) => (e.shiftKey && cur ? { anchor: { r: cur.anchor.r, c: 0 }, focus: { r, c: lastCol } } : { anchor: { r, c: 0 }, focus: { r, c: lastCol } }))
+    setSel((cur) => pressRow(cur, r, columns.length - 1, modsOf(e)))
   }
 
   function startResize(e: React.MouseEvent, col: number) {
@@ -187,9 +184,10 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
       next.splice(to, 0, c)
       return next
     })
-    setSel(null)
+    setSel(emptySelection)
   }
 
+  const selectedCountValue = useMemo(() => selectedCount(sel), [sel])
   const selBg = `color-mix(in srgb, ${color} 28%, transparent)`
   const visible: number[] = []
   for (let i = first; i <= last; i++) visible.push(i)
@@ -212,19 +210,19 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
             <div style={{ width: ROWNUM_W }} className="shrink-0 border-r border-line" />
             {colOrder.map((c, p) => {
               const key = sort.findIndex((k) => k.col === c)
-              const colSelected = !!rect && total > 0 && rect.r0 === 0 && rect.r1 === total - 1 && p >= rect.c0 && p <= rect.c1
+              const colSelected = isColumnSelected(sel, p, total)
               return (
                 <div
                   key={c}
                   role="columnheader"
                   aria-sort={key < 0 ? 'none' : sort[key].dir === 'asc' ? 'ascending' : 'descending'}
                   draggable
-                  title={`${columns[c].name} (${columns[c].typeName}) — clique para selecionar a coluna`}
+                  title={`${columns[c].name} (${columns[c].typeName}) — clique para selecionar a coluna (Ctrl soma, Shift estende)`}
                   aria-selected={colSelected}
                   className={`relative flex shrink-0 cursor-pointer items-center gap-1 border-r border-line pl-2 pr-1 hover:bg-hover ${colSelected ? 'bg-selected' : ''}`}
                   style={{ width: widths[c], ...(colSelected ? { boxShadow: `inset 0 -2px 0 ${color}` } : {}) }}
                   // Clicar no título seleciona a coluna inteira (Shift estende até esta coluna); a ordenação fica na setinha.
-                  onClick={(e) => selectColumn(p, e.shiftKey)}
+                  onClick={(e) => selectColumn(p, modsOf(e))}
                   onDragStart={(e) => {
                     dragFrom.current = p
                     e.dataTransfer.effectAllowed = 'move'
@@ -266,7 +264,6 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
 
           {visible.map((r) => {
             const src = rows[order[r]]
-            const rowSelected = rect && r >= rect.r0 && r <= rect.r1
             return (
               <div
                 key={r}
@@ -283,7 +280,7 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
                   {r + 1}
                 </div>
                 {colOrder.map((c, p) => {
-                  const selected = rowSelected && p >= rect.c0 && p <= rect.c1
+                  const selected = isSelected(sel, r, p)
                   const kind = columns[c].kind
                   const text = src[c]
                   return (
@@ -295,7 +292,7 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
                       className={`shrink-0 truncate border-r border-line/60 px-2 leading-[30px] ${kind === 'number' ? 'text-right tabular-nums' : ''}`}
                       onMouseDown={(e) => onCellDown(e, r, p)}
                       onMouseEnter={() => {
-                        if (dragging.current) setSel((cur) => (cur ? { anchor: cur.anchor, focus: { r, c: p } } : cur))
+                        if (dragging.current) setSel((cur) => dragTo(cur, { r, c: p }))
                       }}
                     >
                       <Value value={text} kind={kind} />
@@ -313,6 +310,7 @@ export function DataGrid({ set, color, copyWithHeader, onCopyWithHeaderChange, o
           {total.toLocaleString('pt-BR')} {total === 1 ? 'linha' : 'linhas'}
           {!set.done && ' · carregando…'}
         </span>
+        {selectedCountValue > 1 && <span aria-live="polite">{selectedCountValue.toLocaleString('pt-BR')} células selecionadas</span>}
         {set.truncated && (
           <span className="flex items-center gap-2 text-fg">
             Mostrando só as primeiras linhas.
