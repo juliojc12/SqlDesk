@@ -17,11 +17,16 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <AssemblyName>SqlDesk</AssemblyName>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyTitle>SqlLite Studio</AssemblyTitle>
     <Product>SqlLite Studio</Product>
     <Version>1.0.0</Version>
     <WebDir>$(MSBuildProjectDirectory)\..\SqlDesk.Web</WebDir>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\SqlDesk.Core\SqlDesk.Core.csproj" />

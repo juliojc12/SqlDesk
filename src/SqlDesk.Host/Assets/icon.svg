@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a3142"/>
+      <stop offset="1" stop-color="#14171f"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1565d8"/>
+      <stop offset="0.45" stop-color="#3b9bff"/>
+      <stop offset="1" stop-color="#1457b8"/>
+    </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a9d8ff"/>
+      <stop offset="1" stop-color="#5fb0ff"/>
+    </linearGradient>
+    <linearGradient id="run" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2fd36b"/>
+      <stop offset="1" stop-color="#10893e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- fundo: quadrado arredondado escuro, como o tema do app -->
+  <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#bg)"/>
+  <rect x="8.5" y="8.5" width="239" height="239" rx="57.5" fill="none" stroke="#ffffff" stroke-opacity="0.10"/>
+
+  <!-- banco de dados: cilindro com três camadas -->
+  <path d="M56 78 V168 C56 190 88 204 128 204 C168 204 200 190 200 168 V78 Z" fill="url(#body)"/>
+  <path d="M56 112 C56 134 88 148 128 148 C168 148 200 134 200 112" fill="none" stroke="#0b3f8f" stroke-opacity="0.55" stroke-width="7"/>
+  <path d="M56 140 C56 162 88 176 128 176 C168 176 200 162 200 140" fill="none" stroke="#0b3f8f" stroke-opacity="0.55" stroke-width="7"/>
+  <ellipse cx="128" cy="78" rx="72" ry="30" fill="url(#top)"/>
+  <ellipse cx="128" cy="78" rx="72" ry="30" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="3"/>
+
+  <!-- executar: botão verde com o triângulo de play -->
+  <circle cx="186" cy="186" r="52" fill="#14171f"/>
+  <circle cx="186" cy="186" r="44" fill="url(#run)"/>
+  <path d="M172 164 L210 186 L172 208 Z" fill="#ffffff" stroke="#ffffff" stroke-width="6" stroke-linejoin="round"/>
+</svg>

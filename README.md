@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icon.png" alt="Ícone do SqlLite Studio" width="112"></p>
+
 # SqlLite Studio
 
 Cliente desktop leve para consultar bancos **SQL Server**, só para Windows. Interface moderna em tema escuro, execução no estilo do DBeaver e travas contra comandos destrutivos.
