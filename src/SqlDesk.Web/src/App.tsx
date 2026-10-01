@@ -11,18 +11,33 @@ import { ConnectionPicker, PasswordPrompt, UnsavedDialog } from './components/Ta
 import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { Toolbar } from './components/Toolbar'
+import { generateAlias } from './alias'
 import { NEUTRAL_COLOR } from './colors'
+import { registerCompletion } from './completion'
 import type {
-  AppCloseRequestedEvent, ConnectionInfo, DocRange, GuardExpiredEvent, GuardInfo, QueryStartedEvent, TabConnectionLostEvent, TabTransactionEvent,
+  AppCloseRequestedEvent, ConnectionInfo, DocRange, GuardExpiredEvent, GuardInfo, MetadataUpdatedEvent, QueryStartedEvent, TabConnectionLostEvent,
+  TabTransactionEvent,
 } from './contracts'
 import { highlightRange, revealLine, snapshotOf, wrapInTransaction, type EditorSnapshot } from './editorActions'
+import { quoteIfNeeded } from './suggest'
+import { applyMetadata, getMeta, patchMeta, setTabConnection, useMeta } from './metadataStore'
+import type { MetaObject } from './metadataIndex'
 import { monaco } from './monacoSetup'
+import { getAutoAlias, setAutoAlias } from './settings'
 import { beginRun, failRun, finishRun, type ResultSet } from './results'
 import { clearResults, getResults, listenToQueryEvents, updateResults, useTabResults } from './resultsStore'
 import { deserialize, initialTabsState, isDirty, serialize, tabsReducer, type Tab } from './tabsState'
 import { useTheme } from './useTheme'
 
 const msg = (e: unknown) => (e instanceof BridgeCallError ? e.detail.message : String(e))
+
+async function loadMetadata(connectionId: string) {
+  try {
+    applyMetadata(connectionId, await invoke('metadata.get', { connectionId }))
+  } catch (e) {
+    patchMeta(connectionId, { loading: false, error: msg(e) })
+  }
+}
 
 function loadNumber(key: string, fallback: number): number {
   try {
@@ -77,6 +92,7 @@ export default function App() {
   const [closingTran, setClosingTran] = useState<Tab | null>(null)
   const [tranBusy, setTranBusy] = useState(false)
   const [appClose, setAppClose] = useState<{ tabId: string; count: number }[] | null>(null)
+  const [autoAlias, setAutoAliasState] = useState(getAutoAlias)
   const [confirmDisconnect, setConfirmDisconnect] = useState<{ message: string; run: () => Promise<void> } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(() => loadNumber('sidebarWidth', 260))
@@ -141,7 +157,12 @@ export default function App() {
       setNotice(p.message)
     })
     const offClose = on<AppCloseRequestedEvent>('app.closeRequested', (p) => setAppClose(p.tabs))
+    const offMeta = on<MetadataUpdatedEvent>('metadata.updated', (p) => {
+      if (p.phase === 'error') patchMeta(p.connectionId, { loading: false, error: p.message ?? 'Não foi possível carregar os metadados.' })
+      else void loadMetadata(p.connectionId)
+    })
     return () => {
+      offMeta()
       offResults()
       offHighlight()
       offTran()
@@ -157,6 +178,43 @@ export default function App() {
     return () => window.clearTimeout(h)
   }, [notice])
 
+  // ---------- Metadados (autocomplete e árvore de objetos) ----------
+  useEffect(() => {
+    registerCompletion()
+  }, [])
+
+  // O provider do Monaco só enxerga o modelo da aba: aqui se mantém a conexão de cada uma.
+  useEffect(() => {
+    tabs.forEach((t) => setTabConnection(t.id, t.connectionId))
+  }, [tabs])
+
+  /** Dispara o carregamento em segundo plano (sem bloquear a interface). Sem `force`, não recarrega cache completo. */
+  async function ensureMetadata(connectionId: string, force = false) {
+    const current = getMeta(connectionId)
+    if (!force && (current.loading || current.columnsLoaded)) return
+    patchMeta(connectionId, { loading: true, error: undefined })
+    try {
+      const r = await invoke('metadata.refresh', { connectionId, force })
+      if (!r.started && !r.loading) await loadMetadata(connectionId) // o backend já tinha o cache (o frontend foi recarregado)
+    } catch (e) {
+      patchMeta(connectionId, { loading: false, error: msg(e) })
+    }
+  }
+
+  /** Duplo clique na árvore: abre uma nova aba com `SELECT TOP 100 * FROM schema.Tabela alias` (ou EXEC, para procedure). */
+  function openObject(conn: ConnectionInfo, o: MetaObject) {
+    const name = `${quoteIfNeeded(o.schema)}.${quoteIfNeeded(o.name)}`
+    const text = o.type === 'procedure' ? `EXEC ${name}` : `SELECT TOP 100 * FROM ${name} ${generateAlias(o.name)}`
+    addTab(conn, { text, title: o.name })
+  }
+
+  function toggleAutoAlias() {
+    setAutoAliasState((on) => {
+      setAutoAlias(!on)
+      return !on
+    })
+  }
+
   // ---------- Persistência das abas (com debounce) ----------
   const stateJson = useMemo(() => serialize(tabsState), [tabsState])
   useEffect(() => {
@@ -171,6 +229,7 @@ export default function App() {
     try {
       const r = await invoke('tabs.open', { tabId, connectionId, password: password ?? null })
       dispatch({ type: 'setStatus', id: tabId, status: 'connected', serverVersion: r.serverVersion })
+      void ensureMetadata(connectionId)
       setPromptTabId((cur) => (cur === tabId ? null : cur))
     } catch (e) {
       if (e instanceof BridgeCallError && e.detail.code === 'password_required') {
@@ -539,6 +598,7 @@ export default function App() {
     )
   }
 
+  const activeMeta = useMeta(activeConn?.id)
   const tranTabs = useMemo(
     () => new Set(tabs.filter((t) => (tranCounts[t.id] ?? 0) > 0).map((t) => t.id)),
     [tabs, tranCounts],
@@ -564,6 +624,9 @@ export default function App() {
               onDuplicate={(c) => void duplicate(c)}
               onDisconnect={(c) => void disconnectConnection(c)}
               onDelete={setDeleting}
+              onExpand={(c) => void ensureMetadata(c.id)}
+              onRefreshMetadata={(c) => void ensureMetadata(c.id, true)}
+              onOpenObject={openObject}
             />
             <div role="separator" aria-orientation="vertical" className="-ml-px w-1 shrink-0 cursor-col-resize hover:bg-line" onMouseDown={startSidebarResize} />
           </>
@@ -615,6 +678,10 @@ export default function App() {
                 onStop={stop}
                 tranCount={tranCounts[activeTab.id] ?? 0}
                 onBeginTran={() => void tranAction('begin', activeTab)}
+                autoAlias={autoAlias}
+                onToggleAlias={toggleAutoAlias}
+                metaLoading={activeMeta.loading}
+                onRefreshMetadata={() => activeTab.connectionId && void ensureMetadata(activeTab.connectionId, true)}
               />
               {(activeTab.status === 'error' || activeTab.status === 'no-connection') && activeTab.statusMessage && (
                 <div role="alert" className="flex items-center gap-4 border-b border-line bg-hover px-4 py-2 text-sm">

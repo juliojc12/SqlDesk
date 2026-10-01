@@ -126,6 +126,7 @@ export interface ExecuteResponse {
   guard?: GuardInfo
 }
 
+export interface MetadataUpdatedEvent { connectionId: string; phase: 'objects' | 'columns' | 'error'; message?: string }
 export interface TabTransactionEvent { tabId: string; count: number }
 export interface TabConnectionLostEvent { tabId: string; hadTransaction: boolean }
 export interface GuardExpiredEvent { tabId: string; executionId: string; message: string }
@@ -164,6 +165,8 @@ export interface Requests {
   'tran.begin': { request: { tabId: string }; response: { tranCount: number } }
   'tran.commit': { request: { tabId: string }; response: { tranCount: number } }
   'tran.rollback': { request: { tabId: string }; response: { tranCount: number } }
+  'metadata.refresh': { request: { connectionId: string; force: boolean }; response: { started: boolean; loading: boolean; loaded: boolean } }
+  'metadata.get': { request: { connectionId: string }; response: import('./metadataIndex').MetadataDto }
   'window.forceClose': { request: Record<string, never>; response: Record<string, never> }
   'session.load': { request: Record<string, never>; response: { state?: string | null } }
   'session.save': { request: { state: string }; response: Record<string, never> }

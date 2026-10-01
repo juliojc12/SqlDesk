@@ -93,5 +93,21 @@ public sealed record QueryResultCompletedEvent(string TabId, string ExecutionId,
 
 public sealed record QueryMessageEvent(string TabId, string ExecutionId, string Kind, string Text, int? Line);
 
+// ---- Metadados (autocomplete e árvore de objetos) ----
+public sealed record MetadataRefreshRequest(Guid ConnectionId, bool Force);
+
+public sealed record MetadataRefreshResponse(bool Started, bool Loading, bool Loaded);
+
+public sealed record MetadataGetRequest(Guid ConnectionId);
+
+public sealed record MetadataDto(
+    bool Loaded, bool ColumnsLoaded, bool Loading,
+    IReadOnlyList<string> Schemas,
+    IReadOnlyList<SqlDesk.Core.Metadata.MetaObject> Objects,
+    IReadOnlyDictionary<string, IReadOnlyList<SqlDesk.Core.Metadata.MetaColumn>> Columns);
+
+/// <param name="Phase">objects | columns | error</param>
+public sealed record MetadataUpdatedEvent(Guid ConnectionId, string Phase, string? Message);
+
 // ---- Janela ----
 public sealed record WindowStateEvent(bool Maximized);

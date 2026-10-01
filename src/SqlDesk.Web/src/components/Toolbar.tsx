@@ -17,11 +17,15 @@ interface Props {
   onStop: () => void
   tranCount: number
   onBeginTran: () => void
+  autoAlias: boolean
+  onToggleAlias: () => void
+  metaLoading: boolean
+  onRefreshMetadata: () => void
 }
 
 const ghost = 'flex h-8 items-center gap-2 rounded-md px-3 text-sm text-fg enabled:hover:bg-hover disabled:opacity-40'
 
-export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop, tranCount, onBeginTran }: Props) {
+export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop, tranCount, onBeginTran, autoAlias, onToggleAlias, metaLoading, onRefreshMetadata }: Props) {
   const connected = tab.status === 'connected'
   const canRun = connected && !running
   return (
@@ -59,6 +63,24 @@ export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onD
       <span className="mx-1 h-5 w-px bg-line" aria-hidden />
       <button className={`${ghost} icon w-9 justify-center px-0`} title="Salvar (Ctrl+S)" aria-label="Salvar" onClick={onSave}>&#xE74E;</button>
       <button className={`${ghost} icon w-9 justify-center px-0`} title="Abrir arquivo .sql (Ctrl+O)" aria-label="Abrir arquivo" onClick={onOpen}>&#xE8E5;</button>
+      <span className="mx-1 h-5 w-px bg-line" aria-hidden />
+      <button
+        className={`${ghost} icon w-9 justify-center px-0 ${metaLoading ? 'animate-pulse' : ''}`}
+        title="Atualizar metadados (tabelas e colunas do autocomplete)"
+        aria-label="Atualizar metadados"
+        disabled={tab.connectionId === null}
+        onClick={onRefreshMetadata}
+      >
+        &#xE72C;
+      </button>
+      <button
+        className={`${ghost} ${autoAlias ? 'bg-hover' : ''}`}
+        title="Alias automático ao aceitar uma tabela depois de FROM ou JOIN"
+        aria-pressed={autoAlias}
+        onClick={onToggleAlias}
+      >
+        Alias {autoAlias ? 'ligado' : 'desligado'}
+      </button>
 
       <div className="ml-auto flex items-center gap-3 text-[15px] text-muted">
         {tab.connectionId === null ? (

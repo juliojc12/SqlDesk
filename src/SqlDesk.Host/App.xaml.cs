@@ -28,6 +28,11 @@ public partial class App : Application
         sc.AddSingleton<TransactionService>();
         sc.AddSingleton(sp => new GuardedRunner(sp.GetRequiredService<ISessionDb>(), sp.GetRequiredService<IBatchRunner>()));
         sc.AddSingleton<TransactionNotifier>();
+        sc.AddSingleton(sp =>
+        {
+            var sessions = sp.GetRequiredService<TabSessionManager>();
+            return new SqlDesk.Core.Metadata.MetadataService((id, ct) => sessions.OpenSideConnectionAsync(id, ct));
+        });
         sc.AddSingleton(new SessionStateStore(SessionStateStore.DefaultPath));
         sc.AddSingleton<WindowController>();
         sc.AddSingleton<EventHub>();
@@ -43,6 +48,7 @@ public partial class App : Application
             typeof(LoadSessionStateHandler), typeof(SaveSessionStateHandler),
             typeof(ExecuteHandler), typeof(CancelHandler), typeof(GuardResolveHandler),
             typeof(BeginTranHandler), typeof(CommitTranHandler), typeof(RollbackTranHandler), typeof(ForceCloseHandler),
+            typeof(MetadataRefreshHandler), typeof(MetadataGetHandler),
             typeof(SaveFileHandler), typeof(OpenFileHandler),
             typeof(MinimizeWindowHandler), typeof(ToggleMaximizeWindowHandler), typeof(CloseWindowHandler),
         })

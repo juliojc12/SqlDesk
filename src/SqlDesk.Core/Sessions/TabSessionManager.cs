@@ -72,6 +72,36 @@ public sealed class TabSessionManager : IAsyncDisposable
         return new OpenSessionResult(conn.ServerVersion, conn.Database);
     }
 
+    /// <summary>
+    /// Abre uma conexão própria (fora das abas) para trabalho em segundo plano, como carregar metadados, sem disputar a
+    /// conexão de uma aba em execução. Usa só a senha salva ou a já informada nesta execução do app; nunca pede nem inventa.
+    /// </summary>
+    public async Task<SqlConnection> OpenSideConnectionAsync(Guid connectionId, CancellationToken ct = default)
+    {
+        var info = _store.Get(connectionId) ?? throw new ConnectionValidationException("Conexão não encontrada.");
+        var password = _store.GetPassword(connectionId);
+        if (password is null && _runtimePasswords.TryGetValue(connectionId, out var cached)) password = cached;
+        if (password is null)
+            throw new PasswordRequiredException($"A conexão '{info.Name}' não tem senha salva. Conecte uma aba informando a senha.");
+
+        var conn = new SqlConnection(ConnectionStringService.Build(info.Settings, password));
+        try
+        {
+            await conn.OpenAsync(ct);
+            return conn;
+        }
+        catch (SqlException ex)
+        {
+            await conn.DisposeAsync();
+            throw new ConnectFailedException(SqlErrorTranslator.Translate(ex), ex, SqlErrorTranslator.IsCertificateError(ex));
+        }
+        catch
+        {
+            await conn.DisposeAsync();
+            throw;
+        }
+    }
+
     /// <summary>Fecha a conexão mas mantém a aba (o texto não se perde).</summary>
     public async Task DisconnectAsync(string tabId)
     {
