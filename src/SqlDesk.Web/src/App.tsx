@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { BridgeCallError, invoke } from './bridge'
+import { BridgeCallError, invoke, on } from './bridge'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { ConnectionDialog, nextDefaultColor } from './components/ConnectionDialog'
 import { EditorPane, modelPath } from './components/EditorPane'
@@ -11,8 +11,11 @@ import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { Toolbar } from './components/Toolbar'
 import { NEUTRAL_COLOR } from './colors'
-import type { ConnectionInfo } from './contracts'
+import type { ConnectionInfo, QueryStartedEvent } from './contracts'
+import { highlightRange, revealLine, snapshotOf, type EditorSnapshot } from './editorActions'
 import { monaco } from './monacoSetup'
+import { beginRun, failRun, finishRun, type ResultSet } from './results'
+import { clearResults, getResults, listenToQueryEvents, updateResults, useTabResults } from './resultsStore'
 import { deserialize, initialTabsState, isDirty, serialize, tabsReducer, type Tab } from './tabsState'
 import { useTheme } from './useTheme'
 
@@ -50,6 +53,7 @@ export default function App() {
   const [promptTabId, setPromptTabId] = useState<string | null>(null)
   const [promptError, setPromptError] = useState<string | undefined>()
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(() => loadNumber('sidebarWidth', 260))
   const [resultsHeight, setResultsHeight] = useState(() => loadNumber('resultsHeight', 260))
@@ -59,6 +63,7 @@ export default function App() {
   const connById = useCallback((id: string | null) => connections.find((c) => c.id === id) ?? null, [connections])
   const activeConn = connById(activeTab?.connectionId ?? null)
   const activeColor = activeConn?.color ?? NEUTRAL_COLOR
+  const results = useTabResults(activeId)
   const connectedIds = useMemo(
     () => new Set(tabs.filter((t) => t.status === 'connected' && t.connectionId).map((t) => t.connectionId as string)),
     [tabs],
@@ -90,6 +95,24 @@ export default function App() {
       return null
     }
   }, [])
+
+  // ---------- Eventos de execução (resultados, mensagens, destaque do statement) ----------
+  useEffect(() => {
+    const offResults = listenToQueryEvents()
+    const offHighlight = on<QueryStartedEvent>('query.started', (p) => {
+      if (p.range) highlightRange(p.tabId, p.range)
+    })
+    return () => {
+      offResults()
+      offHighlight()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!notice) return
+    const h = window.setTimeout(() => setNotice(null), 5000)
+    return () => window.clearTimeout(h)
+  }, [notice])
 
   // ---------- Persistência das abas (com debounce) ----------
   const stateJson = useMemo(() => serialize(tabsState), [tabsState])
@@ -163,6 +186,52 @@ export default function App() {
     }
   }
 
+  // ---------- Execução ----------
+  /**
+   * Pede ao backend para executar. O backend decide o que rodar (seleção, statement sob o cursor ou script) e
+   * aplica as travas; aqui só se envia texto, cursor e seleção. Uma aba executa um comando por vez.
+   */
+  async function execute(mode: 'current' | 'script', opts: { newSubTab?: boolean; snapshot?: EditorSnapshot; noRowLimit?: boolean } = {}) {
+    const tab = latest.current.activeTab
+    if (!tab || getResults(tab.id).running) return
+    if (tab.status !== 'connected') {
+      setNotice('Conecte a aba antes de executar.')
+      return
+    }
+    const snap = opts.snapshot ?? snapshotOf(tab.id) ?? { text: tab.text, cursor: 0, selectionStart: 0, selectionEnd: 0 }
+    const executionId = crypto.randomUUID()
+    updateResults(tab.id, (s) => beginRun(s, executionId, snap.text, opts.newSubTab ?? false))
+    try {
+      const r = await invoke('query.execute', { tabId: tab.id, executionId, ...snap, mode, noRowLimit: opts.noRowLimit ?? false })
+      updateResults(tab.id, (s) => finishRun(s, executionId, r))
+      if (r.status === 'nothing' && r.message) setNotice(r.message)
+      if (r.status === 'refused' && r.message) setNotice(r.message)
+    } catch (e) {
+      updateResults(tab.id, (s) => failRun(s, executionId, msg(e)))
+    }
+  }
+
+  function stop() {
+    const tab = latest.current.activeTab
+    if (tab && getResults(tab.id).running) void invoke('query.cancel', { tabId: tab.id }).catch((e) => setError(msg(e)))
+  }
+
+  /** "Carregar todas": reexecuta o trecho que gerou o resultado, sem o limite de linhas. */
+  function loadAll(set: ResultSet) {
+    void execute('current', {
+      noRowLimit: true,
+      snapshot: { text: set.sourceText, cursor: 0, selectionStart: 0, selectionEnd: set.sourceText.length },
+    })
+  }
+
+  function activateResult(key: string) {
+    if (!activeTab) return
+    updateResults(activeTab.id, (s) => ({ ...s, active: key }))
+    // Clicar numa sub-aba de resultado destaca no editor o trecho que a gerou.
+    const set = getResults(activeTab.id).sets.find((s) => s.key === key)
+    if (set) highlightRange(activeTab.id, set.source)
+  }
+
   // ---------- Abas ----------
   function addTab(conn: ConnectionInfo | null, extra: { text?: string; title?: string; filePath?: string | null } = {}) {
     const id = crypto.randomUUID()
@@ -184,6 +253,7 @@ export default function App() {
 
   function closeNow(tab: Tab) {
     dispatch({ type: 'close', id: tab.id })
+    clearResults(tab.id)
     void invoke('tabs.disconnect', { tabId: tab.id }).catch((e) => setError(msg(e)))
     monaco.editor.getModel(monaco.Uri.parse(modelPath(tab.id)))?.dispose()
   }
@@ -268,18 +338,24 @@ export default function App() {
   }
 
   // ---------- Atalhos globais (fase de captura: antes do Monaco) ----------
-  const latest = useRef({ newTab, requestClose, saveTab, openFile, activeTab })
-  latest.current = { newTab, requestClose, saveTab, openFile, activeTab }
+  const latest = useRef({ newTab, requestClose, saveTab, openFile, activeTab, execute, stop })
+  latest.current = { newTab, requestClose, saveTab, openFile, activeTab, execute, stop }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || e.altKey) return
-      const k = e.key.toLowerCase()
       const l = latest.current
       const run = (fn: () => void) => {
         e.preventDefault()
         e.stopPropagation()
         fn()
       }
+      // Execução (como no DBeaver): F5 roda o script; Esc cancela só se houver execução em andamento.
+      if (e.key === 'F5' && !e.ctrlKey && !e.altKey) return run(() => void l.execute('script'))
+      if (e.key === 'Escape' && l.activeTab && getResults(l.activeTab.id).running) return run(l.stop)
+
+      if (!e.ctrlKey || e.altKey) return
+      const k = e.key.toLowerCase()
+      if (k === 'enter') return run(() => void l.execute('current'))
+      if (e.key === '\\' || e.code === 'Backslash' || e.code === 'IntlBackslash') return run(() => void l.execute('current', { newSubTab: true }))
       if (k === 't') run(l.newTab)
       else if (k === 'w') run(() => l.activeTab && l.requestClose(l.activeTab))
       else if (k === 'tab') run(() => dispatch({ type: 'cycle', direction: e.shiftKey ? -1 : 1 }))
@@ -372,6 +448,13 @@ export default function App() {
             </p>
           )}
 
+          {notice && (
+            <p role="status" className="flex items-center justify-between border-b border-line bg-hover px-4 py-2 text-sm">
+              {notice}
+              <button className="icon ml-4" aria-label="Dispensar aviso" onClick={() => setNotice(null)}>&#xE8BB;</button>
+            </p>
+          )}
+
           {activeTab ? (
             <>
               <Toolbar
@@ -383,6 +466,10 @@ export default function App() {
                 onConnect={() => requestConnect(activeTab)}
                 onDisconnect={() => void disconnectTab(activeTab)}
                 onPickConnection={() => setPicker({ purpose: 'assign', title: 'Escolha a conexão desta aba', tabId: activeTab.id })}
+                running={results.running}
+                onRun={() => void execute('current')}
+                onRunScript={() => void execute('script')}
+                onStop={stop}
               />
               {(activeTab.status === 'error' || activeTab.status === 'no-connection') && activeTab.statusMessage && (
                 <div role="alert" className="flex items-center gap-4 border-b border-line bg-hover px-4 py-2 text-sm">
@@ -406,7 +493,14 @@ export default function App() {
                 </div>
                 <div role="separator" aria-orientation="horizontal" className="h-1 shrink-0 cursor-row-resize border-t border-line hover:bg-line" onMouseDown={startResultsResize} />
                 <div style={{ height: resultsHeight }} className="shrink-0">
-                  <ResultsPanel color={activeColor} />
+                  <ResultsPanel
+                    results={results}
+                    color={activeColor}
+                    onActivate={activateResult}
+                    onJumpToLine={(line) => revealLine(activeTab.id, line)}
+                    onLoadAll={loadAll}
+                    canLoadAll={activeTab.status === 'connected' && !results.running}
+                  />
                 </div>
               </div>
             </>
@@ -418,7 +512,7 @@ export default function App() {
           )}
         </main>
       </div>
-      <StatusBar tab={activeTab} connection={activeConn} />
+      <StatusBar tab={activeTab} connection={activeConn} results={results} />
 
       {editing && (
         <ConnectionDialog

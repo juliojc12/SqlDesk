@@ -52,6 +52,51 @@ export interface TestConnectionResult {
   certificateUntrusted?: boolean
 }
 
+// ---- Execução ----
+export type ColumnKind = 'number' | 'text' | 'date' | 'bool' | 'binary'
+
+export interface ColumnInfo {
+  name: string
+  kind: ColumnKind
+  typeName: string
+}
+
+/** Valor de célula: decimal e bigint chegam como texto (o JS perderia precisão). */
+export type Cell = string | number | boolean | null
+
+export interface DocRange {
+  start: number
+  length: number
+}
+
+export type MessageKind = 'info' | 'rows' | 'error' | 'timing'
+
+export interface ExecuteRequest {
+  tabId: string
+  executionId: string
+  text: string
+  cursor: number
+  selectionStart: number
+  selectionEnd: number
+  /** current = seleção ou statement sob o cursor; script = documento inteiro. */
+  mode: 'current' | 'script'
+  noRowLimit: boolean
+}
+
+export interface ExecuteResponse {
+  status: 'completed' | 'error' | 'cancelled' | 'refused' | 'nothing'
+  elapsedMs: number
+  totalRows: number
+  message?: string
+  blocked?: { line: number; description: string }[]
+}
+
+export interface QueryStartedEvent { tabId: string; executionId: string; range?: DocRange }
+export interface QueryResultStartedEvent { tabId: string; executionId: string; resultIndex: number; source: DocRange; columns: ColumnInfo[] }
+export interface QueryRowsEvent { tabId: string; executionId: string; resultIndex: number; rows: Cell[][] }
+export interface QueryResultCompletedEvent { tabId: string; executionId: string; resultIndex: number; rowCount: number; truncated: boolean }
+export interface QueryMessageEvent { tabId: string; executionId: string; kind: MessageKind; text: string; line?: number }
+
 // Mapa tipo -> { request, response }
 export interface Requests {
   ping: { request: { message: string }; response: { message: string; serverTime: string } }
@@ -73,6 +118,8 @@ export interface Requests {
     response: { serverVersion: string; database: string }
   }
   'tabs.disconnect': { request: { tabId: string }; response: Record<string, never> }
+  'query.execute': { request: ExecuteRequest; response: ExecuteResponse }
+  'query.cancel': { request: { tabId: string }; response: Record<string, never> }
   'session.load': { request: Record<string, never>; response: { state?: string | null } }
   'session.save': { request: { state: string }; response: Record<string, never> }
   'files.save': {

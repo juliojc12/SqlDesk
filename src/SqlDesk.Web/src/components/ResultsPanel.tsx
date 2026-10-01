@@ -1,34 +1,120 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { MESSAGES_TAB, type ResultSet, type TabResults } from '../results'
+import { DataGrid } from './DataGrid'
 
-/** Esqueleto do painel de resultados (sub-abas e exportação); o conteúdo chega com a execução. */
-export function ResultsPanel({ color }: { color: string }) {
-  const [active, setActive] = useState<'results' | 'messages'>('results')
-  const tab = (k: 'results' | 'messages', label: string) => (
-    <button
-      role="tab"
-      aria-selected={active === k}
-      onClick={() => setActive(k)}
-      style={active === k ? { borderBottomColor: color } : undefined}
-      className={`-mb-px border-b-2 px-1 py-2 text-[15px] ${active === k ? 'border-b-2 text-fg' : 'border-transparent text-muted'}`}
-    >
-      {label}
-    </button>
+interface Props {
+  results: TabResults
+  color: string
+  onActivate: (key: string) => void
+  onJumpToLine: (line: number) => void
+  onLoadAll: (set: ResultSet) => void
+  /** "Carregar todas" reexecuta o trecho; só faz sentido com a aba conectada e livre. */
+  canLoadAll: boolean
+}
+
+function loadCopyWithHeader(): boolean {
+  try {
+    return localStorage.getItem('copyWithHeader') === '1'
+  } catch {
+    return false
+  }
+}
+
+function Messages({ results, onJumpToLine }: Pick<Props, 'results' | 'onJumpToLine'>) {
+  const end = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'end' })
+  }, [results.messages.length])
+
+  if (results.messages.length === 0) {
+    return <div className="flex h-full items-center justify-center text-sm text-muted">Nenhuma mensagem.</div>
+  }
+  return (
+    <div className="thin-scroll h-full select-text overflow-auto px-5 py-3 font-mono text-[13px]" role="log" aria-label="Mensagens">
+      {results.messages.map((m) => (
+        <p key={m.id} className={`flex gap-3 py-0.5 ${m.kind === 'error' ? 'text-danger' : m.kind === 'info' ? 'text-fg' : 'text-muted'}`}>
+          <span className="whitespace-pre-wrap break-words">{m.text}</span>
+          {m.line !== undefined && (
+            <button className="shrink-0 underline decoration-dotted hover:decoration-solid" onClick={() => onJumpToLine(m.line as number)}>
+              linha {m.line}
+            </button>
+          )}
+        </p>
+      ))}
+      <div ref={end} />
+    </div>
   )
+}
+
+export function ResultsPanel({ results, color, onActivate, onJumpToLine, onLoadAll, canLoadAll }: Props) {
+  const [copyWithHeader, setCopyWithHeader] = useState(loadCopyWithHeader)
+  const active = results.sets.find((s) => s.key === results.active) ?? null
+  const showMessages = results.active === MESSAGES_TAB || !active
+  const hasError = results.messages.some((m) => m.kind === 'error')
+
+  const tabClass = (on: boolean) =>
+    `-mb-px flex items-center gap-2 border-b-2 px-1 py-2 text-[15px] ${on ? 'text-fg' : 'border-transparent text-muted hover:text-fg'}`
   const ghost = 'flex h-8 items-center gap-2 rounded-md px-2 text-sm text-fg disabled:opacity-40'
+
   return (
     <section className="flex h-full min-h-0 flex-col bg-surface" aria-label="Resultados">
       <div className="flex h-11 shrink-0 items-center gap-5 border-b border-line px-5">
-        <div role="tablist" className="flex gap-5">
-          {tab('results', 'Resultados')}
-          {tab('messages', 'Mensagens')}
+        <div role="tablist" className="thin-scroll flex min-w-0 gap-5 overflow-x-auto overflow-y-hidden">
+          {results.sets.map((s) => {
+            const on = !showMessages && s.key === active?.key
+            return (
+              <button
+                key={s.key}
+                role="tab"
+                aria-selected={on}
+                style={on ? { borderBottomColor: color } : undefined}
+                className={`${tabClass(on)} shrink-0 whitespace-nowrap`}
+                onClick={() => onActivate(s.key)}
+              >
+                {s.title}
+                <span className="text-[12px] text-muted">{s.rowCount.toLocaleString('pt-BR')}</span>
+              </button>
+            )
+          })}
+          <button
+            role="tab"
+            aria-selected={showMessages}
+            style={showMessages ? { borderBottomColor: color } : undefined}
+            className={`${tabClass(showMessages)} shrink-0`}
+            onClick={() => onActivate(MESSAGES_TAB)}
+          >
+            Mensagens
+            {hasError && <span className="h-2 w-2 rounded-full bg-danger" aria-label="há erros" />}
+          </button>
         </div>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex shrink-0 gap-2">
+          {/* A exportação chega na Fase 8. */}
           <button disabled className={ghost}><span className="icon">&#xE896;</span> CSV</button>
           <button disabled className={ghost}><span className="icon">&#xE896;</span> XLSX</button>
         </div>
       </div>
-      <div className="flex flex-1 items-center justify-center text-sm text-muted">
-        {active === 'results' ? 'Nenhum resultado ainda.' : 'Nenhuma mensagem.'}
+
+      <div className="min-h-0 flex-1">
+        {showMessages ? (
+          <Messages results={results} onJumpToLine={onJumpToLine} />
+        ) : (
+          <DataGrid
+            key={active.key}
+            set={active}
+            color={color}
+            copyWithHeader={copyWithHeader}
+            onCopyWithHeaderChange={(v) => {
+              setCopyWithHeader(v)
+              try {
+                localStorage.setItem('copyWithHeader', v ? '1' : '0')
+              } catch {
+                /* preferência de conveniência */
+              }
+            }}
+            canLoadAll={canLoadAll}
+            onLoadAll={() => onLoadAll(active)}
+          />
+        )}
       </div>
     </section>
   )

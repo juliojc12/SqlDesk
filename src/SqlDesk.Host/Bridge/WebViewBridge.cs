@@ -4,7 +4,7 @@ using Microsoft.Web.WebView2.Core;
 namespace SqlDesk.Host.Bridge;
 
 /// <summary>Liga o <see cref="CoreWebView2"/> ao dispatcher. Envelope: <c>{ id, type, payload }</c>.</summary>
-public sealed class WebViewBridge(MessageDispatcher dispatcher)
+public sealed class WebViewBridge(MessageDispatcher dispatcher, EventHub events)
 {
     private CoreWebView2? _web;
     private SynchronizationContext? _ui;
@@ -14,6 +14,7 @@ public sealed class WebViewBridge(MessageDispatcher dispatcher)
         _web = web;
         _ui = SynchronizationContext.Current;
         web.WebMessageReceived += OnMessage;
+        events.Attach(Publish);
     }
 
     /// <summary>Evento sem requisição (id nulo).</summary>

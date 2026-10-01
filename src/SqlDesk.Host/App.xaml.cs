@@ -1,6 +1,7 @@
 using System.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using SqlDesk.Core.Connections;
+using SqlDesk.Core.Execution;
 using SqlDesk.Core.Sessions;
 using SqlDesk.Host.Bridge;
 using SqlDesk.Host.Handlers;
@@ -21,8 +22,10 @@ public partial class App : Application
         sc.AddSingleton<IPasswordProtector, DpapiPasswordProtector>();
         sc.AddSingleton(sp => new ConnectionStore(ConnectionStore.DefaultPath, sp.GetRequiredService<IPasswordProtector>()));
         sc.AddSingleton<TabSessionManager>();
+        sc.AddSingleton<QueryRunner>();
         sc.AddSingleton(new SessionStateStore(SessionStateStore.DefaultPath));
         sc.AddSingleton<WindowController>();
+        sc.AddSingleton<EventHub>();
 
         // Handlers da ponte
         foreach (var handler in new[]
@@ -33,6 +36,7 @@ public partial class App : Application
             typeof(ParseConnectionStringHandler), typeof(BuildConnectionStringHandler),
             typeof(OpenTabHandler), typeof(DisconnectTabHandler), typeof(DisconnectConnectionHandler),
             typeof(LoadSessionStateHandler), typeof(SaveSessionStateHandler),
+            typeof(ExecuteHandler), typeof(CancelHandler),
             typeof(SaveFileHandler), typeof(OpenFileHandler),
             typeof(MinimizeWindowHandler), typeof(ToggleMaximizeWindowHandler), typeof(CloseWindowHandler),
         })

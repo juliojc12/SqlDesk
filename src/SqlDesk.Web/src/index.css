@@ -97,3 +97,6 @@ input, textarea { user-select: text; }
 .thin-scroll { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 
 :focus-visible { outline: 2px solid color-mix(in srgb, var(--fg) 55%, transparent); outline-offset: 1px; }
+
+/* Trecho executado, destacado por instantes no editor. */
+.exec-highlight { background: color-mix(in srgb, var(--fg) 22%, transparent); border-radius: 2px; }

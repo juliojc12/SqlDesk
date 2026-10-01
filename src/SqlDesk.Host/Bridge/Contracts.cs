@@ -43,5 +43,32 @@ public sealed record SaveFileResponse(bool Cancelled, string? Path, string? Name
 
 public sealed record OpenFileResponse(bool Cancelled, string? Path, string? Name, string? Content);
 
+// ---- Execução ----
+// Eventos (id nulo): query.started, query.resultStarted, query.rows, query.resultCompleted, query.message.
+// A resposta de query.execute chega depois de todos os eventos da execução.
+
+/// <param name="Mode">"current" (seleção ou statement sob o cursor) ou "script" (documento inteiro).</param>
+public sealed record ExecuteRequest(
+    string TabId, string ExecutionId, string Text, int Cursor, int SelectionStart, int SelectionEnd,
+    string Mode, bool NoRowLimit);
+
+/// <param name="Status">completed | error | cancelled | refused | nothing. Não usar o nome "error" para campos: colide com o envelope de erro.</param>
+public sealed record BlockedStatement(int Line, string Description);
+
+public sealed record ExecuteResponse(
+    string Status, long ElapsedMs, long TotalRows, string? Message, IReadOnlyList<BlockedStatement>? Blocked);
+
+public sealed record QueryStartedEvent(string TabId, string ExecutionId, SqlDesk.Core.Execution.DocRange? Range);
+
+public sealed record QueryResultStartedEvent(
+    string TabId, string ExecutionId, int ResultIndex, SqlDesk.Core.Execution.DocRange Source,
+    IReadOnlyList<SqlDesk.Core.Execution.ColumnInfo> Columns);
+
+public sealed record QueryRowsEvent(string TabId, string ExecutionId, int ResultIndex, IReadOnlyList<object?[]> Rows);
+
+public sealed record QueryResultCompletedEvent(string TabId, string ExecutionId, int ResultIndex, long RowCount, bool Truncated);
+
+public sealed record QueryMessageEvent(string TabId, string ExecutionId, string Kind, string Text, int? Line);
+
 // ---- Janela ----
 public sealed record WindowStateEvent(bool Maximized);

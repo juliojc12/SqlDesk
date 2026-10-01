@@ -1,4 +1,5 @@
 using SqlDesk.Core.Connections;
+using SqlDesk.Core.Execution;
 using SqlDesk.Core.Sessions;
 using SqlDesk.Host.Bridge;
 
@@ -18,12 +19,13 @@ public sealed class OpenTabHandler(TabSessionManager sessions) : MessageHandler<
 }
 
 /// <summary>Fecha a conexão da aba (a aba e o texto continuam existindo). Também usado ao fechar a aba.</summary>
-public sealed class DisconnectTabHandler(TabSessionManager sessions) : MessageHandler<TabIdRequest, EmptyResponse>
+public sealed class DisconnectTabHandler(TabSessionManager sessions, QueryRunner runner) : MessageHandler<TabIdRequest, EmptyResponse>
 {
     public override string Type => "tabs.disconnect";
 
     protected override async Task<EmptyResponse> HandleAsync(TabIdRequest r, CancellationToken ct)
     {
+        runner.Cancel(r.TabId);
         await sessions.DisconnectAsync(r.TabId);
         return new EmptyResponse();
     }

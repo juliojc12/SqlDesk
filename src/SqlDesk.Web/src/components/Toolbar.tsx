@@ -11,24 +11,42 @@ interface Props {
   onConnect: () => void
   onDisconnect: () => void
   onPickConnection: () => void
+  running: boolean
+  onRun: () => void
+  onRunScript: () => void
+  onStop: () => void
 }
 
 const ghost = 'flex h-8 items-center gap-2 rounded-md px-3 text-sm text-fg enabled:hover:bg-hover disabled:opacity-40'
 
-export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection }: Props) {
+export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop }: Props) {
   const connected = tab.status === 'connected'
+  const canRun = connected && !running
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-4">
-      {/* Execução e transações chegam nas fases seguintes; os controles já ocupam seu lugar no layout. */}
+      {/* Transações chegam na Fase 6; o controle já ocupa seu lugar no layout. */}
       <button
-        disabled
-        title="Executar (Ctrl+Enter)"
+        disabled={!canRun}
+        onClick={onRun}
+        title="Executar a seleção ou o statement sob o cursor (Ctrl+Enter). Ctrl+\ abre o resultado em nova sub-aba"
         style={{ backgroundColor: color, color: textOn(color) }}
-        className="flex h-9 items-center gap-2 rounded-lg px-4 text-[15px] font-medium opacity-50"
+        className="flex h-9 items-center gap-2 rounded-lg px-4 text-[15px] font-medium disabled:opacity-50"
       >
         <span className="icon">&#xE768;</span> Executar
       </button>
-      <button disabled title="Parar (Esc)" aria-label="Parar" className={`${ghost} icon w-9 justify-center px-0`}>&#xE71A;</button>
+      <button disabled={!canRun} onClick={onRunScript} title="Executar o script inteiro (F5)" className={ghost}>
+        <span className="icon">&#xEA37;</span> Script
+      </button>
+      <button
+        disabled={!running}
+        onClick={onStop}
+        title="Parar (Esc)"
+        aria-label="Parar"
+        style={running ? { backgroundColor: '#C42B1C', color: '#FFFFFF' } : undefined}
+        className={`${running ? 'font-medium' : 'text-fg opacity-40'} flex h-8 items-center gap-2 rounded-md px-3 text-sm`}
+      >
+        <span className="icon">&#xE71A;</span> {running && 'Parar'}
+      </button>
       <button disabled className={ghost}>
         <span className="icon">&#xE8C8;</span> Transação
       </button>
