@@ -35,15 +35,18 @@ export function snapshotOf(tabId: string): EditorSnapshot | null {
   }
 }
 
-/** Destaca um trecho do documento por ~600 ms (o statement executado, ou o que gerou um resultado). */
-export function highlightRange(tabId: string, range: DocRange, ms = 600) {
+/**
+ * Destaca por ~600 ms o trecho do documento que gerou um resultado (ao clicar na sub-aba). Só rola o editor até ele quando
+ * `reveal` é pedido: executar uma query nunca mexe na rolagem nem na seleção, para quem está escrevendo no fim do texto continuar de onde parou.
+ */
+export function highlightRange(tabId: string, range: DocRange, { reveal = false, ms = 600 } = {}) {
   const shown = editorShowing(tabId)
   if (!shown) return
   const { model, editor } = shown
   const start = model.getPositionAt(range.start)
   const end = model.getPositionAt(range.start + range.length)
   const r = new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column)
-  editor.revealRangeInCenterIfOutsideViewport(r)
+  if (reveal) editor.revealRangeInCenterIfOutsideViewport(r)
   const ids = model.deltaDecorations([], [{ range: r, options: { className: 'exec-highlight' } }])
   window.setTimeout(() => {
     if (!model.isDisposed()) model.deltaDecorations(ids, [])

@@ -17,7 +17,7 @@ import { buildLoadedPayload, resultOrdinal, suggestedFileName, type GridView } f
 import { NEUTRAL_COLOR } from './colors'
 import { registerCompletion } from './completion'
 import type {
-  AppCloseRequestedEvent, ConnectionInfo, ExportProgressEvent, DocRange, GuardExpiredEvent, GuardInfo, MetadataUpdatedEvent, QueryStartedEvent, TabConnectionLostEvent,
+  AppCloseRequestedEvent, ConnectionInfo, ExportProgressEvent, DocRange, GuardExpiredEvent, GuardInfo, MetadataUpdatedEvent, TabConnectionLostEvent,
   TabTransactionEvent,
 } from './contracts'
 import { formatEditor, highlightRange, revealLine, snapshotOf, wrapInTransaction, type EditorSnapshot } from './editorActions'
@@ -140,12 +140,9 @@ export default function App() {
     }
   }, [])
 
-  // ---------- Eventos de execução (resultados, mensagens, destaque do statement) ----------
+  // ---------- Eventos de execução (resultados, mensagens, transações) ----------
   useEffect(() => {
     const offResults = listenToQueryEvents()
-    const offHighlight = on<QueryStartedEvent>('query.started', (p) => {
-      if (p.range) highlightRange(p.tabId, p.range)
-    })
     const offTran = on<TabTransactionEvent>('tab.transaction', (p) =>
       setTranCounts((m) => (m[p.tabId] === p.count ? m : { ...m, [p.tabId]: p.count })),
     )
@@ -179,7 +176,6 @@ export default function App() {
       offExport()
       offMeta()
       offResults()
-      offHighlight()
       offTran()
       offLost()
       offExpired()
@@ -424,7 +420,7 @@ export default function App() {
     updateResults(activeTab.id, (s) => ({ ...s, active: key }))
     // Clicar numa sub-aba de resultado destaca no editor o trecho que a gerou.
     const set = getResults(activeTab.id).sets.find((s) => s.key === key)
-    if (set) highlightRange(activeTab.id, set.source)
+    if (set) highlightRange(activeTab.id, set.source, { reveal: true })
   }
 
   // ---------- Exportação ----------
