@@ -13,6 +13,7 @@ import { TabBar } from './components/TabBar'
 import { TitleBar } from './components/TitleBar'
 import { Toolbar } from './components/Toolbar'
 import { generateAlias } from './alias'
+import { describeRejection, errorDisplayMs } from './rejections'
 import { buildLoadedPayload, resultOrdinal, suggestedFileName, type GridView } from './exporter'
 import { NEUTRAL_COLOR } from './colors'
 import { registerCompletion } from './completion'
@@ -82,7 +83,11 @@ export default function App() {
   const [picker, setPicker] = useState<Picker | null>(null)
   const [promptTabId, setPromptTabId] = useState<string | null>(null)
   const [promptError, setPromptError] = useState<string | undefined>()
-  const [error, setError] = useState<string | null>(null)
+  // Aviso de erro: some sozinho depois de alguns segundos. Só os críticos (`sticky`) ficam até o usuário fechar.
+  const [errorBanner, setErrorBanner] = useState<{ text: string; sticky: boolean } | null>(null)
+  const setError = useCallback((text: string | null, opts?: { sticky?: boolean }) => {
+    setErrorBanner(text === null ? null : { text, sticky: opts?.sticky ?? false })
+  }, [])
   const [notice, setNotice] = useState<string | null>(null)
   const [tranCounts, setTranCounts] = useState<Record<string, number>>({})
   const [danger, setDanger] = useState<{ tabId: string; mode: RunMode; opts: RunOpts; blocked: { line: number; description: string }[] } | null>(null)
@@ -127,7 +132,7 @@ export default function App() {
         setBooted(true)
       }
     })()
-  }, [])
+  }, [setError])
 
   const reloadConnections = useCallback(async () => {
     try {
@@ -138,7 +143,7 @@ export default function App() {
       setError(msg(e))
       return null
     }
-  }, [])
+  }, [setError])
 
   // ---------- Eventos de execução (resultados, mensagens, transações) ----------
   useEffect(() => {
@@ -149,7 +154,7 @@ export default function App() {
     const offLost = on<TabConnectionLostEvent>('tab.connectionLost', (p) => {
       dispatch({ type: 'setStatus', id: p.tabId, status: 'disconnected', message: 'A conexão com o servidor caiu.' })
       setGuardDlg((g) => (g?.tabId === p.tabId ? null : g))
-      if (p.hadTransaction) setError('A conexão caiu e o servidor desfez a transação aberta (rollback): as alterações não confirmadas foram perdidas.')
+      if (p.hadTransaction) setError('A conexão caiu e o servidor desfez a transação aberta (rollback): as alterações não confirmadas foram perdidas.', { sticky: true })
       else setNotice('A conexão com o servidor caiu.')
     })
     // Sem resposta em 120 s o backend já fez o rollback; só resta fechar o diálogo e avisar.
@@ -160,7 +165,8 @@ export default function App() {
     // Promessa rejeitada sem tratamento (falha inesperada de uma chamada): aviso em vez de falha silenciosa.
     const onRejection = (e: PromiseRejectionEvent) => {
       e.preventDefault()
-      setError(`Erro inesperado: ${msg(e.reason)}`)
+      const text = describeRejection(e.reason) // cancelamentos (ex.: o "Canceled" do Monaco) não são falha e não avisam
+      if (text) setError(text)
     }
     window.addEventListener('unhandledrejection', onRejection)
     const offClose = on<AppCloseRequestedEvent>('app.closeRequested', (p) => setAppClose(p.tabs))
@@ -181,7 +187,13 @@ export default function App() {
       offExpired()
       offClose()
     }
-  }, [])
+  }, [setError])
+
+  useEffect(() => {
+    if (!errorBanner || errorBanner.sticky) return
+    const h = window.setTimeout(() => setErrorBanner(null), errorDisplayMs(errorBanner.text))
+    return () => window.clearTimeout(h)
+  }, [errorBanner])
 
   useEffect(() => {
     if (!notice) return
@@ -238,7 +250,7 @@ export default function App() {
     if (!booted) return
     const h = window.setTimeout(() => void invoke('session.save', { state: stateJson }).catch((e) => setError(msg(e))), 500)
     return () => window.clearTimeout(h)
-  }, [stateJson, booted])
+  }, [stateJson, booted, setError])
 
   // ---------- Conexão das abas ----------
   const connectTab = useCallback(async (tabId: string, connectionId: string, password?: string) => {
@@ -707,9 +719,9 @@ export default function App() {
             tranTabs={tranTabs}
           />
 
-          {error && (
+          {errorBanner && (
             <p role="alert" className="flex items-center justify-between bg-red-200 px-4 py-2 text-sm text-red-950">
-              {error}
+              {errorBanner.text}
               <button className="icon ml-4" aria-label="Dispensar aviso" onClick={() => setError(null)}>&#xE8BB;</button>
             </p>
           )}
