@@ -49,8 +49,9 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
             // servir de cobertura para um DROP que só existe na leitura do servidor (ex.: depois de um /*!99999 ' */).
             if (AlternateScans(text).Any(alt => HasUncoveredDanger(alt, text, st.Start, found)))
                 found.Add(new DangerousStatement(DangerKind.Unanalyzable, st.Start, Math.Max(1, st.End - st.Start), map.LineOf(st.Start),
-                    "Dependendo do servidor (NO_BACKSLASH_ESCAPES, ou comentário /*! /*M! /*+ que ele ignora), as aspas fecham em outro " +
-                    "lugar e este trecho contém um comando destrutivo fora da string; tratado como perigoso por segurança",
+                    "Dependendo do servidor (NO_BACKSLASH_ESCAPES, ou comentário /*! /*M! /*+ que ele ignora), este trecho é lido de " +
+                    "outro jeito (as aspas fecham em outro lugar ou o comando destrutivo atinge outro objeto); tratado como perigoso " +
+                    "por segurança",
                     null, [], CanPreviewWithOutput: false));
             dangers.AddRange(found);
         }
@@ -59,7 +60,8 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
 
     /// <summary>
     /// A releitura <paramref name="alt"/> do trecho (que começa em <paramref name="offset"/> no script) tem algum perigo que a
-    /// leitura principal não lista: mesmo tipo na mesma posição, ou dentro de um trecho que ela já trata como não analisável.
+    /// leitura principal não lista: mesmo tipo, posição, alvo e contagem prévia, ou dentro de um trecho que ela já trata como
+    /// não analisável.
     /// Statements quebrados na releitura são ignorados (o servidor os recusaria com erro de sintaxe).
     /// </summary>
     private static bool HasUncoveredDanger(ScanResult alt, string text, int offset, List<DangerousStatement> main)
@@ -69,7 +71,10 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
             foreach (var d in ClassifyChunk(s, text, map))
             {
                 var at = offset + d.Start;
-                var covered = main.Any(m => (m.Kind == d.Kind && m.Start == at) ||
+                // O alvo também precisa bater: um comentário executável pode trocar a tabela (DELETE FROM /*!99999 i */ m),
+                // e a checagem de mecanismo e o diálogo olhariam a tabela errada.
+                var covered = main.Any(m => (m.Kind == d.Kind && m.Start == at && string.Equals(m.Target, d.Target, StringComparison.Ordinal) &&
+                                             m.CountQueries.SequenceEqual(d.CountQueries, StringComparer.Ordinal)) ||
                                             (m.Kind == DangerKind.Unanalyzable && m.Start <= at && at < m.Start + m.Length));
                 if (!covered) return true;
             }

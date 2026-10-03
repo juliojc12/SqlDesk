@@ -347,6 +347,36 @@ public class GuardTests
     }
 
     [IntegrationTheory, MemberData(nameof(TestServers.All), MemberType = typeof(TestServers))]
+    public async Task Comentario_executavel_que_troca_o_alvo_e_irreversivel_na_primeira_confirmacao(string server)
+    {
+        // A leitura principal executa o comentário (alvo {i}, InnoDB), mas o servidor o ignora pela versão e apaga de {m}
+        // (MyISAM). No MariaDB 11, /*!99999 é executado (versão menor que a dele): lá o comentário ignorado é o /*M!999999.
+        await using var h = await Harness.OpenAsync(server);
+        var (i, m) = (Table("gci", server), Table("gcm", server));
+        try
+        {
+            await h.RunAsync($"CREATE TABLE {i} (id INT PRIMARY KEY) ENGINE=InnoDB; INSERT INTO {i} VALUES (1),(2);" +
+                             $"CREATE TABLE {m} (id INT PRIMARY KEY) ENGINE=MyISAM; INSERT INTO {m} VALUES (1),(2);");
+            var sql = server == "mariadb" ? $"DELETE FROM /*M!999999 {i} */ {m}" : $"DELETE FROM /*!99999 {i} */ {m}";
+
+            Assert.True(await h.Guard.IsIrreversibleAsync(h.TabId, DangerPlan(h, sql), default));
+            Assert.Equal(2L, await h.ScalarAsync($"SELECT COUNT(*) FROM {m}")); // nada apagado antes da confirmação
+
+            var outcome = await h.RunGuardedAsync(sql);
+
+            Assert.Equal(GuardStatus.Completed, outcome.Status);
+            Assert.Null(outcome.Pending);
+            Assert.False(h.Guard.HasPending(h.TabId));
+            Assert.Equal(0L, await h.ScalarAsync($"SELECT COUNT(*) FROM {m}")); // o servidor apagou de {m}, como avisado
+            Assert.Equal(2L, await h.ScalarAsync($"SELECT COUNT(*) FROM {i}"));
+        }
+        finally
+        {
+            await h.RunAsync($"DROP TABLE IF EXISTS {i}; DROP TABLE IF EXISTS {m}");
+        }
+    }
+
+    [IntegrationTheory, MemberData(nameof(TestServers.All), MemberType = typeof(TestServers))]
     public async Task View_como_alvo_e_irreversivel(string server)
     {
         await using var h = await Harness.OpenAsync(server);

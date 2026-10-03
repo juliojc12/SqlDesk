@@ -25,7 +25,7 @@ Cliente desktop leve para consultar bancos **SQL Server, MySQL e MariaDB**, só 
 
 **Limitações conhecidas:**
 
-- O analisador de SQL do MySQL é **léxico** (não há um parser como o ScriptDom): na dúvida, trata o trecho como perigoso. `PREPARE ... FROM @var` e `CALL` não são inspecionados por dentro.
+- O analisador de SQL do MySQL é **léxico** (não há um parser como o ScriptDom): na dúvida, trata o trecho como perigoso (inclusive quando um comentário executável `/*! ... */` ou `/*M! ... */` muda o comando ou a tabela-alvo conforme a versão do servidor: o trecho vira irreversível). `PREPARE ... FROM @var` e `CALL` não são inspecionados por dentro.
 - A reexecução para exportar aceita `SELECT` que chama funções (`SELECT f()`, `GET_LOCK`, `NEXTVAL`): no MySQL uma função armazenada pode gravar dados, e a reexecução roda a consulta de novo.
 - A checagem do mecanismo de armazenamento olha a tabela-alvo de cada `UPDATE`/`DELETE` perigoso; com mais de uma tabela (`UPDATE a JOIN b`, `DELETE x FROM a JOIN x`...) não há um alvo só e o comando é tratado como irreversível. Gravações em tabela não transacional que ela não vê (trigger, outro comando do mesmo trecho, ou uma tabela `TEMPORARY` não InnoDB com o mesmo nome de uma InnoDB, que a checagem lê como InnoDB) só são percebidas no `ROLLBACK`, pelo aviso do servidor.
 - Só autenticação por usuário e senha: na connection string, certificado de cliente (`CertificateFile`, `SslCert`, `SslKey`...), arquivos de CA ou de chave, socket/pipe/memória compartilhada (`ConnectionProtocol`, `PipeName`), Kerberos (`ServerSPN`) e `AllowLoadLocalInfile` são recusados; o TLS vem das duas caixas do diálogo.

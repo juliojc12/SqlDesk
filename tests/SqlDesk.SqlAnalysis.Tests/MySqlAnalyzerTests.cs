@@ -526,6 +526,30 @@ public class MySqlAnalyzerTests
         Assert.DoesNotContain("mais de uma tabela", d.Description);
     }
 
+    // ---- Acompanhamento: comentário executável que troca o alvo (N2) ----
+
+    [Theory]
+    [InlineData("DELETE FROM /*!99999 i */ m")]
+    [InlineData("DELETE FROM /*M!999999 i */ m")]
+    [InlineData("UPDATE /*!99999 i */ m SET v = 1")]
+    [InlineData("DROP TABLE /*!99999 a */ b")]
+    [InlineData("DROP TABLE /*M!999999 a */ b")]
+    [InlineData("TRUNCATE TABLE /*!99999 a */ b")]
+    public void Comentario_executavel_que_troca_o_alvo_e_nao_analisavel(string sql)
+    {
+        var a = A.Analyze(sql);
+        Assert.Contains(a.Dangers, d => d.Kind == DangerKind.Unanalyzable && d.Start == 0);
+    }
+
+    [Theory]
+    [InlineData("DELETE FROM t /*!40101 LIMIT 1 */")]
+    [InlineData("/*!40101 SET NAMES utf8 */; DELETE FROM t")]
+    [InlineData("/*!40101 SET @OLD_SQL_MODE=@@SQL_MODE */; DROP TABLE t")]
+    [InlineData("DROP TABLE /*!32312 IF EXISTS */ t")]
+    [InlineData("UPDATE t SET a = 1 /*!99999 , b = 2 */")]
+    public void Comentario_executavel_com_o_mesmo_alvo_nao_acusa_mais_nada(string sql) =>
+        Assert.DoesNotContain(DangerKind.Unanalyzable, Kinds(sql));
+
     [Fact]
     public void Analisador_do_SQL_Server_nunca_acusa_commit_implicito() =>
         Assert.False(((ISqlAnalyzer)SqlServerAnalyzer.Instance).CausesImplicitCommit("CREATE TABLE x (id INT); COMMIT"));
