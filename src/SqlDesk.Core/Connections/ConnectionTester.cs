@@ -1,4 +1,6 @@
+using System.Data.Common;
 using Microsoft.Data.SqlClient;
+using SqlDesk.Core.Providers;
 
 namespace SqlDesk.Core.Connections;
 
@@ -6,15 +8,17 @@ public static class ConnectionTester
 {
     public static async Task<TestConnectionResult> TestAsync(ConnectionSettings settings, string? password, CancellationToken ct = default)
     {
+        var provider = ProviderRegistry.For(settings);
         try
         {
-            await using var conn = new SqlConnection(ConnectionStringService.Build(settings, password));
+            await using var conn = provider.CreateConnection(provider.BuildConnectionString(settings, password));
             await conn.OpenAsync(ct);
             return new TestConnectionResult(true, conn.ServerVersion, null);
         }
-        catch (SqlException ex)
+        catch (DbException ex)
         {
-            return new TestConnectionResult(false, null, SqlErrorTranslator.Translate(ex), SqlErrorTranslator.IsCertificateError(ex));
+            var f = provider.Translate(ex);
+            return new TestConnectionResult(false, null, f.Message, f.CertificateUntrusted);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {

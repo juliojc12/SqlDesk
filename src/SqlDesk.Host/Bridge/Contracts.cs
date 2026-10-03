@@ -19,7 +19,8 @@ public sealed record ConnectionIdRequest(Guid Id);
 
 public sealed record TestConnectionRequest(Guid? Id, SqlDesk.Core.Connections.ConnectionSettings Settings, string? Password);
 
-public sealed record ParseConnectionStringRequest(string ConnectionString);
+/// <param name="Provider">Banco da connection string (padrão: SQL Server).</param>
+public sealed record ParseConnectionStringRequest(string ConnectionString, string? Provider = null);
 
 public sealed record ParseConnectionStringResponse(SqlDesk.Core.Connections.ConnectionSettings Settings, string? Password);
 
@@ -60,9 +61,14 @@ public sealed record BlockedStatement(int Line, string Description);
 /// dentro de transação, aguardando commit ou rollback) | tran_lost. Não usar o nome "error" para campos: colide com o envelope de erro.
 /// </param>
 /// <param name="Range">Trecho do documento que seria/foi executado (para "Envolver em transação").</param>
+/// <param name="Irreversible">
+/// Em needs_confirmation: o banco confirma DDL sozinho (MySQL/MariaDB) e o trecho tem DDL perigoso, comando que confirma
+/// a transação sozinho ou algo que não dá para analisar (ver GuardedRunner.IsIrreversible), então tudo roda
+/// direto, sem transação e sem segunda confirmação (o resultado volta como completed).
+/// </param>
 public sealed record ExecuteResponse(
     string Status, long ElapsedMs, long TotalRows, string? Message, IReadOnlyList<BlockedStatement>? Blocked,
-    SqlDesk.Core.Execution.DocRange? Range = null, SqlDesk.Core.Execution.GuardInfo? Guard = null);
+    SqlDesk.Core.Execution.DocRange? Range = null, SqlDesk.Core.Execution.GuardInfo? Guard = null, bool Irreversible = false);
 
 public sealed record GuardResolveRequest(string TabId, string GuardId, bool Commit);
 
@@ -104,7 +110,8 @@ public sealed record MetadataDto(
     bool Loaded, bool ColumnsLoaded, bool Loading,
     IReadOnlyList<string> Schemas,
     IReadOnlyList<SqlDesk.Core.Metadata.MetaObject> Objects,
-    IReadOnlyDictionary<string, IReadOnlyList<SqlDesk.Core.Metadata.MetaColumn>> Columns);
+    IReadOnlyDictionary<string, IReadOnlyList<SqlDesk.Core.Metadata.MetaColumn>> Columns,
+    bool HasSchemaLevel = true);
 
 /// <param name="Phase">objects | columns | error</param>
 public sealed record MetadataUpdatedEvent(Guid ConnectionId, string Phase, string? Message);

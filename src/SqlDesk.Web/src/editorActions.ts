@@ -2,6 +2,7 @@ import type { DocRange } from './contracts'
 import { modelPath } from './components/EditorPane'
 import { formatSql } from './formatSql'
 import { monaco } from './monacoSetup'
+import type { ProviderId } from './providers'
 
 /** O que o backend precisa para decidir o que executar: texto completo, cursor e seleção (offsets no texto). */
 export interface EditorSnapshot {
@@ -65,10 +66,10 @@ export function revealLine(tabId: string, line: number) {
 }
 
 /**
- * "Envolver em transação": insere `BEGIN TRAN;` antes do trecho e, depois dele, as linhas comentadas
- * `-- COMMIT;` e `-- ROLLBACK;`. Não executa nada: o usuário revisa e roda quando quiser.
+ * "Envolver em transação": insere `BEGIN TRAN;` (no MySQL, `START TRANSACTION;`) antes do trecho e, depois dele, as linhas
+ * comentadas `-- COMMIT;` e `-- ROLLBACK;`. Não executa nada: o usuário revisa e roda quando quiser.
  */
-export function wrapInTransaction(tabId: string, range: DocRange) {
+export function wrapInTransaction(tabId: string, range: DocRange, provider: ProviderId = 'sqlserver') {
   const shown = editorShowing(tabId)
   if (!shown) return
   const { model, editor } = shown
@@ -77,7 +78,7 @@ export function wrapInTransaction(tabId: string, range: DocRange) {
   const at = (p: { lineNumber: number; column: number }) => new monaco.Range(p.lineNumber, p.column, p.lineNumber, p.column)
   editor.executeEdits('sqldesk-wrap-transaction', [
     { range: at(end), text: '\n-- COMMIT;\n-- ROLLBACK;' },
-    { range: at(start), text: 'BEGIN TRAN;\n' },
+    { range: at(start), text: provider === 'mysql' ? 'START TRANSACTION;\n' : 'BEGIN TRAN;\n' },
   ])
   editor.focus()
 }
@@ -86,9 +87,9 @@ export type FormatOutcome = { status: 'formatted' | 'unchanged' } | { status: 'r
 
 /**
  * Formata a seleção ou, sem seleção, o texto inteiro da aba. A edição entra na pilha de desfazer (Ctrl+Z volta ao texto anterior)
- * e, se o formatador não puder garantir que o conteúdo é o mesmo, o texto não é tocado.
+ * e, se o formatador não puder garantir que o conteúdo é o mesmo, o texto não é tocado. O dialeto é o do banco da aba.
  */
-export function formatEditor(tabId: string): FormatOutcome | null {
+export function formatEditor(tabId: string, provider: ProviderId = 'sqlserver'): FormatOutcome | null {
   const shown = editorShowing(tabId)
   if (!shown) return null
   const { model, editor } = shown
@@ -96,7 +97,7 @@ export function formatEditor(tabId: string): FormatOutcome | null {
   const range = selection && !selection.isEmpty() ? selection : model.getFullModelRange()
   const original = model.getValueInRange(range)
 
-  const result = formatSql(original)
+  const result = formatSql(original, provider)
   if (!result.ok) return { status: 'refused', reason: result.reason }
   // O modelo pode usar CRLF e o formatador devolve LF: a diferença só de fim de linha não conta como mudança.
   if (result.text.replace(/\r\n/g, '\n') === original.replace(/\r\n/g, '\n')) return { status: 'unchanged' }

@@ -1,5 +1,5 @@
 import { getAutoAlias } from './settings'
-import { connectionOfTab, getMeta } from './metadataStore'
+import { connectionOfTab, getMeta, providerOfTab } from './metadataStore'
 import { monaco } from './monacoSetup'
 import { suggest, type Suggestion, type SuggestionKind } from './suggest'
 
@@ -42,8 +42,9 @@ export function registerCompletion() {
   monaco.languages.registerCompletionItemProvider('sql', {
     triggerCharacters: ['.', ' '],
     provideCompletionItems(model, position, context) {
-      const index = getMeta(connectionOfTab(tabIdOf(model.uri))).index
-      const result = suggest(model.getValue(), model.getOffsetAt(position), index, { autoAlias: getAutoAlias() })
+      const tabId = tabIdOf(model.uri)
+      const index = getMeta(connectionOfTab(tabId)).index
+      const result = suggest(model.getValue(), model.getOffsetAt(position), index, { autoAlias: getAutoAlias(), provider: providerOfTab(tabId) })
 
       // O espaço só abre a lista onde ela é esperada (depois de FROM, JOIN, EXEC...); no resto seria ruído.
       const bySpace = context.triggerKind === monaco.languages.CompletionTriggerKind.TriggerCharacter && context.triggerCharacter === ' '

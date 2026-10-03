@@ -42,7 +42,7 @@ public abstract record ExecutionPlan
 /// </summary>
 public static class ExecutionPlanner
 {
-    public static ExecutionPlan Plan(string text, int cursor, int selectionStart, int selectionEnd, bool wholeScript)
+    public static ExecutionPlan Plan(ISqlAnalyzer analyzer, string text, int cursor, int selectionStart, int selectionEnd, bool wholeScript)
     {
         var start = 0;
         var length = text.Length;
@@ -57,7 +57,7 @@ public static class ExecutionPlanner
             }
             else
             {
-                var located = StatementLocator.Locate(text, Math.Clamp(cursor, 0, text.Length));
+                var located = analyzer.Locate(text, Math.Clamp(cursor, 0, text.Length));
                 if (located.Range is not { } range)
                     return new ExecutionPlan.Nothing(located.Message ?? "Nenhum statement sob o cursor.");
                 (start, length) = (range.Start, range.Length);
@@ -69,7 +69,7 @@ public static class ExecutionPlanner
         if (string.IsNullOrWhiteSpace(sub)) return new ExecutionPlan.Nothing("Não há texto para executar.");
 
         var baseLine = 1 + text.AsSpan(0, start).Count('\n');
-        var analysis = SqlScriptAnalyzer.Analyze(sub);
+        var analysis = analyzer.Analyze(sub);
 
         // Repetir um batch (GO n) é arriscado para qualquer escrita; por segurança, não é executado.
         if (analysis.Batches.FirstOrDefault(b => b.RepeatCount > 1) is { } repeated)

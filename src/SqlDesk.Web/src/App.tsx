@@ -23,7 +23,8 @@ import type {
 } from './contracts'
 import { formatEditor, highlightRange, revealLine, snapshotOf, wrapInTransaction, type EditorSnapshot } from './editorActions'
 import { quoteIfNeeded } from './suggest'
-import { applyMetadata, getMeta, patchMeta, setTabConnection, useMeta } from './metadataStore'
+import { applyMetadata, getMeta, patchMeta, providerOfTab, setConnectionDatabase, setConnectionProvider, setTabConnection, useMeta } from './metadataStore'
+import { aliasReservedWords, providerOf } from './providers'
 import type { MetaObject } from './metadataIndex'
 import { monaco } from './monacoSetup'
 import { SettingsDialog } from './components/SettingsDialog'
@@ -90,7 +91,7 @@ export default function App() {
   }, [])
   const [notice, setNotice] = useState<string | null>(null)
   const [tranCounts, setTranCounts] = useState<Record<string, number>>({})
-  const [danger, setDanger] = useState<{ tabId: string; mode: RunMode; opts: RunOpts; blocked: { line: number; description: string }[] } | null>(null)
+  const [danger, setDanger] = useState<{ tabId: string; mode: RunMode; opts: RunOpts; blocked: { line: number; description: string }[]; irreversible: boolean } | null>(null)
   const [guardDlg, setGuardDlg] = useState<{ tabId: string; guard: GuardInfo } | null>(null)
   const [guardBusy, setGuardBusy] = useState(false)
   const [advice, setAdvice] = useState<{ tabId: string; mode: RunMode; opts: RunOpts; range: DocRange } | null>(null)
@@ -117,6 +118,15 @@ export default function App() {
     () => new Set(tabs.filter((t) => t.status === 'connected' && t.connectionId).map((t) => t.connectionId as string)),
     [tabs],
   )
+
+  // O índice de metadados usa o banco atual da conexão para desempatar nomes sem schema (MySQL); o autocomplete e o
+  // formatador usam o provedor da conexão para escolher o dialeto.
+  useEffect(() => {
+    connections.forEach((c) => {
+      setConnectionDatabase(c.id, c.settings.database)
+      setConnectionProvider(c.id, providerOf(c.settings).id)
+    })
+  }, [connections])
 
   // ---------- Inicialização: conexões + restauração das abas ----------
   useEffect(() => {
@@ -224,10 +234,17 @@ export default function App() {
     }
   }
 
-  /** Duplo clique na árvore: abre uma nova aba com `SELECT TOP 100 * FROM schema.Tabela alias` (ou EXEC, para procedure). */
+  /**
+   * Duplo clique na árvore: abre uma nova aba com `SELECT TOP 100 * FROM schema.Tabela alias` (ou EXEC, para procedure).
+   * No MySQL: `SELECT * FROM banco.tabela alias LIMIT 100` (ou CALL), com crases onde precisar.
+   */
   function openObject(conn: ConnectionInfo, o: MetaObject) {
-    const name = `${quoteIfNeeded(o.schema)}.${quoteIfNeeded(o.name)}`
-    const text = o.type === 'procedure' ? `EXEC ${name}` : `SELECT TOP 100 * FROM ${name} ${generateAlias(o.name)}`
+    const p = providerOf(conn.settings).id
+    const name = `${quoteIfNeeded(o.schema, p)}.${quoteIfNeeded(o.name, p)}`
+    const alias = generateAlias(o.name, [], aliasReservedWords(p))
+    const text = p === 'mysql'
+      ? (o.type === 'procedure' ? `CALL ${name}()` : `SELECT * FROM ${name} ${alias} LIMIT 100`)
+      : (o.type === 'procedure' ? `EXEC ${name}` : `SELECT TOP 100 * FROM ${name} ${generateAlias(o.name)}`)
     addTab(conn, { text, title: o.name })
   }
 
@@ -235,7 +252,7 @@ export default function App() {
   function formatActive() {
     const tab = latest.current.activeTab
     if (!tab) return
-    const r = formatEditor(tab.id)
+    const r = formatEditor(tab.id, providerOfTab(tab.id))
     if (r?.status === 'refused') setNotice(`Não foi possível formatar com segurança (${r.reason}). O texto não foi alterado.`)
     else if (r?.status === 'unchanged') setNotice('O texto já está formatado.')
   }
@@ -366,7 +383,8 @@ export default function App() {
           if (r.message) setNotice(r.message)
           break
         case 'needs_confirmation':
-          setDanger({ tabId: tab.id, mode, opts: again, blocked: r.blocked ?? [] })
+          // irreversible (MySQL/MariaDB): o backend roda direto, sem transação; a resposta seguinte já é completed/error.
+          setDanger({ tabId: tab.id, mode, opts: again, blocked: r.blocked ?? [], irreversible: r.irreversible === true })
           break
         case 'advise_transaction':
           if (r.range) setAdvice({ tabId: tab.id, mode, opts: again, range: r.range })
@@ -375,7 +393,7 @@ export default function App() {
           if (r.guard) setGuardDlg({ tabId: tab.id, guard: r.guard })
           break
         case 'tran_lost':
-          setNotice('O próprio script encerrou a transação (COMMIT ou ROLLBACK): as alterações não podem mais ser desfeitas por aqui.')
+          setNotice('A transação foi encerrada durante a execução: as alterações não podem mais ser desfeitas por aqui. Confira os dados.')
           break
       }
     } catch (e) {
@@ -771,7 +789,7 @@ export default function App() {
                 {advice && advice.tabId === activeTab.id && (
                   <TranAdviceBar
                     onWrap={() => {
-                      wrapInTransaction(advice.tabId, advice.range)
+                      wrapInTransaction(advice.tabId, advice.range, providerOfTab(advice.tabId))
                       setAdvice(null)
                     }}
                     onRunAnyway={() => void execute(advice.mode, { ...advice.opts, skipTranAdvice: true })}
@@ -886,6 +904,7 @@ export default function App() {
       {danger && (
         <DangerDialog
           blocked={danger.blocked}
+          irreversible={danger.irreversible}
           onCancel={() => setDanger(null)}
           onContinue={() => {
             const d = danger

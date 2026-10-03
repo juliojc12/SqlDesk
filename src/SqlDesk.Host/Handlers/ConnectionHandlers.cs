@@ -1,5 +1,6 @@
 using System.IO;
 using SqlDesk.Core.Connections;
+using SqlDesk.Core.Providers;
 using SqlDesk.Host.Bridge;
 
 namespace SqlDesk.Host.Handlers;
@@ -69,8 +70,9 @@ public sealed class ParseConnectionStringHandler : MessageHandler<ParseConnectio
     protected override Task<ParseConnectionStringResponse> HandleAsync(ParseConnectionStringRequest r, CancellationToken ct) =>
         Guard.Run(() =>
         {
-            var (settings, password) = ConnectionStringService.Parse(r.ConnectionString);
-            return new ParseConnectionStringResponse(settings, password);
+            var provider = ProviderRegistry.Get(r.Provider ?? ProviderIds.SqlServer);
+            var (settings, password) = provider.ParseConnectionString(r.ConnectionString);
+            return new ParseConnectionStringResponse(settings with { Provider = provider.Id }, password);
         });
 }
 
@@ -79,5 +81,5 @@ public sealed class BuildConnectionStringHandler : MessageHandler<BuildConnectio
     public override string Type => "connections.build";
 
     protected override Task<BuildConnectionStringResponse> HandleAsync(BuildConnectionStringRequest r, CancellationToken ct) =>
-        Guard.Run(() => new BuildConnectionStringResponse(ConnectionStringService.Build(r.Settings, r.Password)));
+        Guard.Run(() => new BuildConnectionStringResponse(ProviderRegistry.For(r.Settings).BuildConnectionString(r.Settings, r.Password)));
 }

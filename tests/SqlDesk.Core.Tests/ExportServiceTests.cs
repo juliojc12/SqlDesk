@@ -123,7 +123,7 @@ public class ExportServiceTests : IDisposable
     {
         var runner = new FakeRunner(s => EmitSet(s, 0, 25_000));
 
-        var r = await ExportService.ExportByRerunAsync(runner, "t", "SELECT * FROM dbo.Grande", ExportFormat.Csv, P("g.csv"), ';', 0, null, null, default);
+        var r = await ExportService.ExportByRerunAsync(runner, "t", "SELECT * FROM dbo.Grande", SqlServerAnalyzer.Instance, ExportFormat.Csv, P("g.csv"), ';', 0, null, null, default);
 
         Assert.Equal(25_000, r.Rows);
         Assert.Equal(25_001, File.ReadLines(P("g.csv")).Count());
@@ -135,7 +135,7 @@ public class ExportServiceTests : IDisposable
     {
         var runner = new FakeRunner(s => EmitSet(s, 0, 2));
 
-        await ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", ExportFormat.Csv, P("o.csv"), ';', 0, [2, 0], null, default);
+        await ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", SqlServerAnalyzer.Instance, ExportFormat.Csv, P("o.csv"), ';', 0, [2, 0], null, default);
 
         var lines = File.ReadAllLines(P("o.csv"));
         Assert.Equal("Criado;Id", lines[0].TrimStart('﻿'));
@@ -151,7 +151,7 @@ public class ExportServiceTests : IDisposable
             EmitSet(s, 1, 3, [new("Outro", "number", "int"), new("Valor", "number", "decimal"), new("Criado", "date", "datetime2")]);
         });
 
-        var r = await ExportService.ExportByRerunAsync(runner, "t", "SELECT 1; SELECT 2", ExportFormat.Csv, P("m.csv"), ';', 1, null, null, default);
+        var r = await ExportService.ExportByRerunAsync(runner, "t", "SELECT 1; SELECT 2", SqlServerAnalyzer.Instance, ExportFormat.Csv, P("m.csv"), ';', 1, null, null, default);
 
         Assert.Equal(3, r.Rows);
         Assert.StartsWith("Outro;", File.ReadAllText(P("m.csv")).TrimStart('﻿'));
@@ -162,7 +162,7 @@ public class ExportServiceTests : IDisposable
     {
         var runner = new FakeRunner(s => EmitSet(s, 0, 3));
 
-        await ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", ExportFormat.Xlsx, P("r.xlsx"), ';', 0, null, null, default);
+        await ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", SqlServerAnalyzer.Instance, ExportFormat.Xlsx, P("r.xlsx"), ';', 0, null, null, default);
 
         var rows = MiniExcel.Query(P("r.xlsx"), useHeaderRow: true).Cast<IDictionary<string, object>>().ToList();
         Assert.Equal(3, rows.Count);
@@ -180,7 +180,7 @@ public class ExportServiceTests : IDisposable
         var runner = new FakeRunner(_ => throw new InvalidOperationException("não deveria executar"));
 
         var ex = await Assert.ThrowsAsync<ExportFailedException>(
-            () => ExportService.ExportByRerunAsync(runner, "t", sql, ExportFormat.Csv, P("x.csv"), ';', 0, null, null, default));
+            () => ExportService.ExportByRerunAsync(runner, "t", sql, SqlServerAnalyzer.Instance, ExportFormat.Csv, P("x.csv"), ';', 0, null, null, default));
 
         Assert.Contains("não é seguro reexecutar", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Null(runner.Batches);
@@ -196,9 +196,46 @@ public class ExportServiceTests : IDisposable
         var runner = new FakeRunner(_ => throw new InvalidOperationException("não deveria executar"));
 
         var ex = await Assert.ThrowsAsync<ExportFailedException>(
-            () => ExportService.ExportByRerunAsync(runner, "t", sql, ExportFormat.Csv, P("x.csv"), ';', 0, null, null, default));
+            () => ExportService.ExportByRerunAsync(runner, "t", sql, SqlServerAnalyzer.Instance, ExportFormat.Csv, P("x.csv"), ';', 0, null, null, default));
 
         Assert.Contains("confirmação", ex.Message);
+    }
+
+    [Theory]
+    [InlineData("DELETE FROM t")]
+    [InlineData("DELETE FROM t WHERE id = 1")]
+    [InlineData("SELECT * FROM t INTO OUTFILE '/tmp/x.txt'")]
+    [InlineData("INSERT INTO t (a) VALUES (1)")]
+    public async Task Reexecucao_respeita_a_recusa_do_analisador_do_mysql(string sql)
+    {
+        var runner = new FakeRunner(_ => throw new InvalidOperationException("não deveria executar"));
+
+        await Assert.ThrowsAsync<ExportFailedException>(
+            () => ExportService.ExportByRerunAsync(runner, "t", sql, MySqlAnalyzer.Instance, ExportFormat.Csv, P("m.csv"), ';', 0, null, null, default));
+
+        Assert.Null(runner.Batches);
+        Assert.Empty(Directory.GetFiles(_dir));
+    }
+
+    /// <summary>Analisador que diz que nada é só leitura, para provar que a reexecução usa o analisador injetado.</summary>
+    private sealed class NothingReadOnlyAnalyzer : ISqlAnalyzer
+    {
+        public ScriptAnalysis Analyze(string script) => MySqlAnalyzer.Instance.Analyze(script);
+        public LocateResult Locate(string text, int cursor) => MySqlAnalyzer.Instance.Locate(text, cursor);
+        public RewriteResult Rewrite(string script) => MySqlAnalyzer.Instance.Rewrite(script);
+        public bool IsReadOnly(string script, out string? reason) { reason = "analisador de teste"; return false; }
+    }
+
+    [Fact]
+    public async Task Reexecucao_usa_o_analisador_injetado_e_recusa_quando_ele_nao_ve_somente_leitura()
+    {
+        var runner = new FakeRunner(_ => throw new InvalidOperationException("não deveria executar"));
+
+        var ex = await Assert.ThrowsAsync<ExportFailedException>(
+            () => ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", new NothingReadOnlyAnalyzer(), ExportFormat.Csv, P("n.csv"), ';', 0, null, null, default));
+
+        Assert.Contains("analisador de teste", ex.Message);
+        Assert.Null(runner.Batches);
     }
 
     [Fact]
@@ -211,7 +248,7 @@ public class ExportServiceTests : IDisposable
         }, RunStatus.Error);
 
         var ex = await Assert.ThrowsAsync<ExportFailedException>(
-            () => ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", ExportFormat.Csv, P("e.csv"), ';', 0, null, null, default));
+            () => ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", SqlServerAnalyzer.Instance, ExportFormat.Csv, P("e.csv"), ';', 0, null, null, default));
 
         Assert.Equal("Timeout expirado.", ex.Message);
         Assert.Empty(Directory.GetFiles(_dir));
@@ -224,7 +261,7 @@ public class ExportServiceTests : IDisposable
         using var cts = new CancellationTokenSource();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", ExportFormat.Csv, P("c.csv"), ';', 0, null, null, cts.Token));
+            () => ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", SqlServerAnalyzer.Instance, ExportFormat.Csv, P("c.csv"), ';', 0, null, null, cts.Token));
 
         Assert.Empty(Directory.GetFiles(_dir));
     }
@@ -235,7 +272,7 @@ public class ExportServiceTests : IDisposable
         var runner = new FakeRunner(_ => { });
 
         var ex = await Assert.ThrowsAsync<ExportFailedException>(
-            () => ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", ExportFormat.Csv, P("n.csv"), ';', 0, null, null, default));
+            () => ExportService.ExportByRerunAsync(runner, "t", "SELECT 1", SqlServerAnalyzer.Instance, ExportFormat.Csv, P("n.csv"), ';', 0, null, null, default));
 
         Assert.Contains("não produziu o resultado", ex.Message);
         Assert.Empty(Directory.GetFiles(_dir));

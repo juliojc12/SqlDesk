@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
-using Microsoft.Data.SqlClient;
+using System.Data.Common;
 using SqlDesk.Core.Connections;
+using SqlDesk.Core.Providers;
 
 namespace SqlDesk.Core.Sessions;
 
@@ -14,16 +15,17 @@ public sealed class ConnectFailedException(string message, Exception inner, bool
 public sealed record OpenSessionResult(string ServerVersion, string Database);
 
 /// <summary>
-/// Uma <see cref="SqlConnection"/> por aba de query, mantida aberta enquanto a aba existir
+/// Uma <see cref="DbConnection"/> por aba de query, mantida aberta enquanto a aba existir
 /// (necessário para que uma transação iniciada numa aba continue valendo entre execuções).
 /// </summary>
 public sealed class TabSessionManager : IAsyncDisposable
 {
-    private sealed record Session(Guid ConnectionId, SqlConnection Connection, int CommandTimeout);
+    private sealed record Session(Guid ConnectionId, DbConnection Connection, int CommandTimeout, IDatabaseProvider Provider);
 
     private readonly ConnectionStore _store;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
     private readonly ConcurrentDictionary<Guid, string> _runtimePasswords = new();
+    private readonly ConcurrentDictionary<string, int> _trackedTransactions = new();
 
     public TabSessionManager(ConnectionStore store) => _store = store;
 
@@ -32,9 +34,21 @@ public sealed class TabSessionManager : IAsyncDisposable
 
     public bool IsConnected(string tabId) => _sessions.ContainsKey(tabId);
 
-    public SqlConnection? GetConnection(string tabId) => _sessions.TryGetValue(tabId, out var s) ? s.Connection : null;
+    public DbConnection? GetConnection(string tabId) => _sessions.TryGetValue(tabId, out var s) ? s.Connection : null;
+
+    /// <summary>Provedor do banco da conexão aberta na aba, ou null se a aba não está conectada.</summary>
+    public IDatabaseProvider? GetProvider(string tabId) => _sessions.TryGetValue(tabId, out var s) ? s.Provider : null;
 
     public int? GetCommandTimeout(string tabId) => _sessions.TryGetValue(tabId, out var s) ? s.CommandTimeout : null;
+
+    /// <summary>Transações que o próprio app abriu na aba e ainda não confirmou nem desfez (zera ao desconectar).</summary>
+    public int TrackedTransactionCount(string tabId) => _trackedTransactions.TryGetValue(tabId, out var n) ? n : 0;
+
+    public void SetTrackedTransactions(string tabId, int count)
+    {
+        if (count > 0) _trackedTransactions[tabId] = count;
+        else _trackedTransactions.TryRemove(tabId, out _);
+    }
 
     /// <summary>
     /// Abre (ou reabre) a sessão da aba. Sem senha salva e sem <paramref name="password"/>, lança
@@ -51,15 +65,17 @@ public sealed class TabSessionManager : IAsyncDisposable
 
         await DisconnectAsync(tabId);
 
-        var conn = new SqlConnection(ConnectionStringService.Build(info.Settings, effective));
+        var provider = ProviderRegistry.For(info.Settings);
+        var conn = provider.CreateConnection(provider.BuildConnectionString(info.Settings, effective));
         try
         {
             await conn.OpenAsync(ct);
         }
-        catch (SqlException ex)
+        catch (DbException ex)
         {
             await conn.DisposeAsync();
-            throw new ConnectFailedException(SqlErrorTranslator.Translate(ex), ex, SqlErrorTranslator.IsCertificateError(ex));
+            var f = provider.Translate(ex);
+            throw new ConnectFailedException(f.Message, ex, f.CertificateUntrusted);
         }
         catch
         {
@@ -68,15 +84,19 @@ public sealed class TabSessionManager : IAsyncDisposable
         }
 
         if (password is not null && !info.HasPassword) _runtimePasswords[connectionId] = password;
-        _sessions[tabId] = new Session(connectionId, conn, info.Settings.CommandTimeout);
+        _sessions[tabId] = new Session(connectionId, conn, info.Settings.CommandTimeout, provider);
         return new OpenSessionResult(conn.ServerVersion, conn.Database);
     }
+
+    /// <summary>Registra uma sessão pronta (conexão e provedor falsos), para testar quem usa a sessão sem um banco de verdade.</summary>
+    internal void AttachForTests(string tabId, DbConnection connection, IDatabaseProvider provider, int commandTimeout = 30) =>
+        _sessions[tabId] = new Session(Guid.NewGuid(), connection, commandTimeout, provider);
 
     /// <summary>
     /// Abre uma conexão própria (fora das abas) para trabalho em segundo plano, como carregar metadados, sem disputar a
     /// conexão de uma aba em execução. Usa só a senha salva ou a já informada nesta execução do app; nunca pede nem inventa.
     /// </summary>
-    public async Task<SqlConnection> OpenSideConnectionAsync(Guid connectionId, CancellationToken ct = default)
+    public async Task<(DbConnection Connection, IDatabaseProvider Provider)> OpenSideConnectionAsync(Guid connectionId, CancellationToken ct = default)
     {
         var info = _store.Get(connectionId) ?? throw new ConnectionValidationException("Conexão não encontrada.");
         var password = _store.GetPassword(connectionId);
@@ -84,16 +104,18 @@ public sealed class TabSessionManager : IAsyncDisposable
         if (password is null)
             throw new PasswordRequiredException($"A conexão '{info.Name}' não tem senha salva. Conecte uma aba informando a senha.");
 
-        var conn = new SqlConnection(ConnectionStringService.Build(info.Settings, password));
+        var provider = ProviderRegistry.For(info.Settings);
+        var conn = provider.CreateConnection(provider.BuildConnectionString(info.Settings, password));
         try
         {
             await conn.OpenAsync(ct);
-            return conn;
+            return (conn, provider);
         }
-        catch (SqlException ex)
+        catch (DbException ex)
         {
             await conn.DisposeAsync();
-            throw new ConnectFailedException(SqlErrorTranslator.Translate(ex), ex, SqlErrorTranslator.IsCertificateError(ex));
+            var f = provider.Translate(ex);
+            throw new ConnectFailedException(f.Message, ex, f.CertificateUntrusted);
         }
         catch
         {
@@ -105,6 +127,8 @@ public sealed class TabSessionManager : IAsyncDisposable
     /// <summary>Fecha a conexão mas mantém a aba (o texto não se perde).</summary>
     public async Task DisconnectAsync(string tabId)
     {
+        // Conexão fechada (ou trocada): o servidor desfaz o que estava aberto nela.
+        _trackedTransactions.TryRemove(tabId, out _);
         if (_sessions.TryRemove(tabId, out var s))
         {
             TabDisconnected?.Invoke(tabId);

@@ -30,7 +30,7 @@ public sealed class MetadataGetHandler(MetadataService metadata) : MessageHandle
         var s = metadata.Get(r.ConnectionId);
         var dto = s is null
             ? new MetadataDto(false, false, metadata.IsLoading(r.ConnectionId), [], [], new Dictionary<string, IReadOnlyList<MetaColumn>>())
-            : new MetadataDto(true, s.ColumnsLoaded, metadata.IsLoading(r.ConnectionId), s.Schemas, s.Objects, s.Columns);
+            : new MetadataDto(true, s.ColumnsLoaded, metadata.IsLoading(r.ConnectionId), s.Schemas, s.Objects, s.Columns, s.HasSchemaLevel);
         return Task.FromResult(dto);
     }
 }

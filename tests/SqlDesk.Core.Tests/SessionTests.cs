@@ -46,6 +46,20 @@ public class SessionTests : IDisposable
     }
 
     [Fact]
+    public async Task Contador_rastreado_de_transacao_por_aba_zera_ao_desconectar()
+    {
+        await using var mgr = new TabSessionManager(NewStore());
+        Assert.Equal(0, mgr.TrackedTransactionCount("t1"));
+
+        mgr.SetTrackedTransactions("t1", 1);
+        Assert.Equal(1, mgr.TrackedTransactionCount("t1"));
+        Assert.Equal(0, mgr.TrackedTransactionCount("t2"));
+
+        await mgr.DisconnectAsync("t1");
+        Assert.Equal(0, mgr.TrackedTransactionCount("t1"));
+    }
+
+    [Fact]
     public async Task Fechar_aba_inexistente_nao_falha()
     {
         await using var mgr = new TabSessionManager(NewStore());

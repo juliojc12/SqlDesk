@@ -20,6 +20,8 @@ export function describeChange(c: GuardChange): string {
       return n === undefined ? `TRUNCATE em ${target}: quantidade de linhas não disponível` : `TRUNCATE de ${target}: ${plural(n, 'linha perdida', 'linhas perdidas')}`
     case 'drop':
       return n === undefined ? c.description : `${c.description} (${plural(n, 'linha perdida', 'linhas perdidas')})`
+    case 'alterTable':
+      return c.description || `ALTER TABLE em ${target}`
     default:
       return c.description
   }

@@ -111,6 +111,9 @@ public sealed partial class ConnectionStore
         if (string.IsNullOrWhiteSpace(r.Settings.Server)) throw new ConnectionValidationException("Informe o servidor.");
         if (!HexColor().IsMatch(r.Color ?? "")) throw new ConnectionValidationException("Cor inválida (use #RRGGBB).");
         if (r.Settings.ConnectTimeout < 0 || r.Settings.CommandTimeout < 0) throw new ConnectionValidationException("Timeouts não podem ser negativos.");
+        if (!SqlDesk.Core.Providers.ProviderIds.IsKnown(r.Settings.Provider)) throw new ConnectionValidationException("Tipo de servidor desconhecido.");
+        // MySQL: chave avançada fora do escopo (ex.: CertificatePassword) nunca chega ao arquivo, onde ficaria em texto puro.
+        if (r.Settings.Provider == SqlDesk.Core.Providers.ProviderIds.MySql) SqlDesk.Core.Providers.MySqlProvider.ValidateAdvanced(r.Settings.Advanced);
     }
 
     [GeneratedRegex("^#[0-9a-fA-F]{6}$")]

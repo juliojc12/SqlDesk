@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
+using System.Data.Common;
 using System.Diagnostics;
-using Microsoft.Data.SqlClient;
+using SqlDesk.Core.Providers;
 using SqlDesk.Core.Sessions;
 using SqlDesk.SqlAnalysis;
 
@@ -41,6 +42,8 @@ public sealed class QueryRunner(TabSessionManager sessions) : IBatchRunner
     {
         var conn = sessions.GetConnection(tabId)
             ?? throw new TabNotConnectedException("A aba não está conectada. Conecte antes de executar.");
+        var provider = sessions.GetProvider(tabId)
+            ?? throw new TabNotConnectedException("A aba não está conectada. Conecte antes de executar.");
         var timeout = sessions.GetCommandTimeout(tabId) ?? 30;
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(externalCt);
@@ -53,14 +56,11 @@ public sealed class QueryRunner(TabSessionManager sessions) : IBatchRunner
         var status = RunStatus.Completed;
         int? errorNumber = null;
 
-        void OnInfo(object _, SqlInfoMessageEventArgs e)
-        {
-            foreach (SqlError err in e.Errors) sink.Message(MessageKinds.Info, err.Message, null);
-        }
-
-        conn.InfoMessage += OnInfo;
+        IDisposable? infoSub = null;
         try
         {
+            // Dentro do try: se a inscrição falhar, a aba não fica marcada como "executando" para sempre.
+            infoSub = provider.SubscribeInfoMessages(conn, msg => sink.Message(MessageKinds.Info, msg, null));
             foreach (var batch in batches)
             {
                 if (string.IsNullOrWhiteSpace(batch.Text)) continue;
@@ -72,12 +72,13 @@ public sealed class QueryRunner(TabSessionManager sessions) : IBatchRunner
                     await using var cmd = conn.CreateCommand();
                     cmd.CommandText = batch.Text;
                     cmd.CommandTimeout = timeout;
-                    cmd.StatementCompleted += (_, e) =>
+                    void Completed(long n)
                     {
-                        if (e.RecordCount < 0) return;
-                        sink.Message(MessageKinds.Rows, $"({e.RecordCount} {(e.RecordCount == 1 ? "linha afetada" : "linhas afetadas")})", null);
-                        sink.StatementCompleted(e.RecordCount);
-                    };
+                        sink.Message(MessageKinds.Rows, $"({n} {(n == 1 ? "linha afetada" : "linhas afetadas")})", null);
+                        sink.StatementCompleted(n);
+                    }
+                    var driverReports = provider.TryAttachStatementCompleted(cmd, Completed);
+                    var lastAffected = 0L;
 
                     await using var reader = await cmd.ExecuteReaderAsync(cts.Token);
                     do
@@ -88,25 +89,34 @@ public sealed class QueryRunner(TabSessionManager sessions) : IBatchRunner
                             resultIndex++;
                             totalRows += count;
                         }
+                        if (!driverReports)
+                        {
+                            // Sem evento do driver (MySQL): result set devolve count linhas; comando sem result set usa RecordsAffected (acumulado no batch).
+                            var affected = emitted ? count : Math.Max(0, reader.RecordsAffected - lastAffected);
+                            if (!emitted) lastAffected = Math.Max(lastAffected, reader.RecordsAffected);
+                            Completed(affected);
+                        }
                     }
                     while (await reader.NextResultAsync(cts.Token));
                 }
-                catch (Exception ex) when (cts.IsCancellationRequested && ex is OperationCanceledException or SqlException or InvalidOperationException)
+                catch (Exception ex) when (cts.IsCancellationRequested && ex is OperationCanceledException or DbException or InvalidOperationException)
                 {
                     status = RunStatus.Cancelled;
                     sink.Message(MessageKinds.Error, "Execução cancelada pelo usuário.", null);
                     break;
                 }
-                catch (SqlException ex)
+                catch (DbException ex)
                 {
                     status = RunStatus.Error;
-                    errorNumber = ex.Number;
-                    foreach (SqlError err in ex.Errors)
+                    errorNumber = provider.ErrorNumber(ex);
+                    var any = false;
+                    foreach (var (message, line, isError) in provider.ErrorDetails(ex, batchFirstLine))
                     {
-                        // Dentro de procedure a linha é relativa a ela, não ao documento.
-                        int? line = string.IsNullOrEmpty(err.Procedure) && err.LineNumber > 0 ? batchFirstLine + err.LineNumber - 1 : null;
-                        sink.Message(err.Class > 10 || ex.Errors.Count == 1 ? MessageKinds.Error : MessageKinds.Info, err.Message, line);
+                        any = true;
+                        sink.Message(isError ? MessageKinds.Error : MessageKinds.Info, message, line);
                     }
+                    // O provedor não soube detalhar (outro tipo de DbException): o erro nunca passa em silêncio.
+                    if (!any) sink.Message(MessageKinds.Error, ex.Message, null);
                     break;
                 }
                 catch (Exception ex) when (ex is InvalidOperationException or IOException)
@@ -116,10 +126,21 @@ public sealed class QueryRunner(TabSessionManager sessions) : IBatchRunner
                     break;
                 }
             }
+
+            // O MySQL atende o KILL QUERY sem erro quando o comando é interrompível (SELECT SLEEP devolve 1), e o pedido
+            // pode chegar quando o último comando já acabou: o leitor termina "com sucesso". O pedido do usuário foi
+            // cancelar, então o resultado não vale como completo, mas os comandos rodaram até o fim (e o que gravaram
+            // ficou): a mensagem não pode dizer que nada aconteceu, senão convida a rodar de novo (ex.: x = x + 1).
+            if (status == RunStatus.Completed && cts.IsCancellationRequested)
+            {
+                status = RunStatus.Cancelled;
+                sink.Message(MessageKinds.Error,
+                    "Cancelamento pedido, mas o comando já tinha terminado: confira os dados (as alterações podem ter sido gravadas).", null);
+            }
         }
         finally
         {
-            conn.InfoMessage -= OnInfo;
+            infoSub?.Dispose();
             _running.TryRemove(tabId, out _);
         }
 

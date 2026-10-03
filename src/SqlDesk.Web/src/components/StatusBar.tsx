@@ -1,5 +1,6 @@
 import { NEUTRAL_COLOR, tintedSurface } from '../colors'
 import type { ConnectionInfo } from '../contracts'
+import { providerOf } from '../providers'
 import { formatElapsed, type TabResults } from '../results'
 import type { Tab } from '../tabsState'
 
@@ -50,7 +51,12 @@ export function StatusBar({ tab, connection, results, openTranTabs, activeTran, 
             <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} aria-hidden />
             {connection?.name ?? 'Sem conexão'} · {LABEL[tab.status]}
           </span>
-          {tab.serverVersion && <span className="whitespace-nowrap">SQL Server {tab.serverVersion}</span>}
+          {connection && (
+            <span className="whitespace-nowrap">
+              {providerOf(connection.settings).name}
+              {tab.serverVersion ? ` ${tab.serverVersion}` : ` · ${connection.settings.server}${connection.settings.database ? ` / ${connection.settings.database}` : ''}`}
+            </span>
+          )}
           {results.running ? (
             <span className="whitespace-nowrap font-medium">Executando…</span>
           ) : (

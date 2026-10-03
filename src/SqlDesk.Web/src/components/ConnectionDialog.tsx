@@ -3,13 +3,20 @@ import { BridgeCallError, invoke } from '../bridge'
 import { PALETTE } from '../colors'
 import { getDefaultCommandTimeout } from '../settings'
 import type { ConnectionInfo, ConnectionSettings, TestConnectionResult } from '../contracts'
+import { labelParts, PROVIDER_CHOICES, providerOf, withProvider, type ProviderId } from '../providers'
 import { ColorPicker } from './ColorPicker'
 import { btnBase, btnPrimary, Modal } from './Modal'
 
 const emptySettings = (): ConnectionSettings => ({
   server: '', database: '', user: '', connectTimeout: 15, commandTimeout: getDefaultCommandTimeout(),
-  encrypt: true, trustServerCertificate: false, advanced: {},
+  encrypt: true, trustServerCertificate: false, advanced: {}, provider: 'sqlserver',
 })
+
+/** Rótulo com o trecho final entre parênteses em cinza (como "Criptografar a conexão (Encrypt)"). */
+function Label({ text }: { text: string }) {
+  const [main, hint] = labelParts(text)
+  return <>{main}{hint && <> <span className="text-muted">{hint}</span></>}</>
+}
 
 const input = 'w-full rounded-md border border-line bg-input px-2 py-1.5 text-sm'
 
@@ -41,9 +48,11 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
 
   const patch = (p: Partial<ConnectionSettings>) => setSettings((s) => ({ ...s, ...p }))
 
-  async function regenerateString() {
+  const provider = providerOf(settings)
+
+  async function regenerateString(withSettings: ConnectionSettings = settings) {
     try {
-      const r = await invoke('connections.build', { settings, password })
+      const r = await invoke('connections.build', { settings: withSettings, password })
       setConnString(r.connectionString)
       setStringError(null)
     } catch (e) {
@@ -54,7 +63,8 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
   /** Aplica a connection string aos campos. Devolve false se inválida (campos ficam intactos). */
   async function applyString(text: string): Promise<boolean> {
     try {
-      const r = await invoke('connections.parse', { connectionString: text })
+      // A connection string é lida no formato do banco escolhido no seletor (o backend devolve o provider nas configurações).
+      const r = await invoke('connections.parse', { connectionString: text, provider: provider.id })
       setSettings(r.settings)
       if (r.password) setPassword(r.password)
       setStringError(null)
@@ -79,6 +89,16 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
     setConnString(text)
     window.clearTimeout(parseTimer.current)
     parseTimer.current = window.setTimeout(() => void applyString(text), 400)
+  }
+
+  /** Troca o tipo de servidor: ajusta as configurações e, na aba da connection string, gera a string no novo formato. */
+  function changeProvider(id: ProviderId) {
+    const next = withProvider(settings, id)
+    if (next === settings) return
+    window.clearTimeout(parseTimer.current)
+    setSettings(next)
+    setTest(null)
+    if (tab === 'string') void regenerateString(next)
   }
 
   async function runTest(withSettings: ConnectionSettings = settings) {
@@ -120,6 +140,14 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
             <div className="mb-1">Cor</div>
             <ColorPicker value={color} onChange={setColor} />
           </div>
+          <label className="block">
+            Tipo de servidor
+            <select className={input} value={provider.id} onChange={(e) => changeProvider(e.target.value as ProviderId)}>
+              {PROVIDER_CHOICES.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
+          </label>
 
           <div role="tablist" className="flex gap-4 border-b border-line">
             {([['fields', 'Campos'], ['string', 'Connection string']] as const).map(([k, label]) => (
@@ -138,8 +166,16 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
           {tab === 'fields' ? (
             <div className="space-y-3">
               <label className="block">
-                Servidor <span className="text-muted">(host ou host,porta)</span>
-                <input className={input} value={settings.server} onChange={(e) => patch({ server: e.target.value })} />
+                Servidor <span className="text-muted">{provider.id === 'mysql' ? '(host ou host:porta)' : '(host ou host,porta)'}</span>
+                <input
+                  className={input}
+                  value={settings.server}
+                  placeholder={provider.id === 'mysql' ? `localhost:${provider.defaultPort}` : undefined}
+                  onChange={(e) => patch({ server: e.target.value })}
+                />
+                {provider.id === 'mysql' && (
+                  <span className="mt-0.5 block text-xs text-muted">Sem porta, usa a {provider.defaultPort}. Endereço IPv6 vai entre colchetes: [::1]:{provider.defaultPort}</span>
+                )}
               </label>
               <label className="block">
                 Banco
@@ -175,12 +211,12 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
               <div className="space-y-1.5">
                 <label className="flex items-center gap-2">
                   <input type="checkbox" checked={settings.encrypt} onChange={(e) => patch({ encrypt: e.target.checked })} />
-                  Criptografar a conexão <span className="text-muted">(Encrypt)</span>
+                  <Label text={provider.encryptLabel} />
                 </label>
                 <label className="flex items-start gap-2">
                   <input className="mt-1" type="checkbox" checked={settings.trustServerCertificate} onChange={(e) => patch({ trustServerCertificate: e.target.checked })} />
                   <span>
-                    Confiar no certificado do servidor <span className="text-muted">(TrustServerCertificate)</span>
+                    <Label text={provider.trustLabel} />
                     <span className="block text-xs text-muted">Marque só para servidores que você conhece, como os da rede interna. O certificado deixa de ser validado.</span>
                   </span>
                 </label>
@@ -212,7 +248,7 @@ export function ConnectionDialog({ connection, defaultColor, onSaved, onClose }:
 
           {test && (
             <p role="status" className={`rounded-md p-2 text-xs ${test === 'running' ? 'bg-hover' : test.ok ? 'bg-green-200 text-green-950' : 'bg-red-200 text-red-950'}`}>
-              {test === 'running' ? 'Testando…' : test.ok ? `Conexão bem-sucedida. SQL Server ${test.serverVersion}` : test.errorMessage}
+              {test === 'running' ? 'Testando…' : test.ok ? `Conexão bem-sucedida. ${provider.name} ${test.serverVersion}` : test.errorMessage}
             </p>
           )}
           {test && test !== 'running' && !test.ok && test.certificateUntrusted && !settings.trustServerCertificate && (

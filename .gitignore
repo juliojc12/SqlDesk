@@ -484,3 +484,6 @@ node_modules/
 dist/
 *.tsbuildinfo
 solution.md
+
+# Artefatos locais do fluxo de trabalho (planos, relatórios de revisão)
+.superpowers/

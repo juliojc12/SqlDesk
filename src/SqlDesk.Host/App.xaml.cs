@@ -25,7 +25,7 @@ public partial class App : Application
         sc.AddSingleton<TabSessionManager>();
         sc.AddSingleton<QueryRunner>();
         sc.AddSingleton<IBatchRunner>(sp => sp.GetRequiredService<QueryRunner>());
-        sc.AddSingleton<ISessionDb, SqlSessionDb>();
+        sc.AddSingleton<ISessionDb, SessionDb>();
         sc.AddSingleton<TransactionService>();
         sc.AddSingleton(sp => new GuardedRunner(sp.GetRequiredService<ISessionDb>(), sp.GetRequiredService<IBatchRunner>()));
         sc.AddSingleton<TransactionNotifier>();

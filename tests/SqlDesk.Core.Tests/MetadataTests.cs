@@ -1,5 +1,6 @@
 using System.Data;
 using SqlDesk.Core.Metadata;
+using SqlDesk.Core.Providers;
 
 namespace SqlDesk.Core.Tests;
 
@@ -29,6 +30,36 @@ public class MetadataTests
     [InlineData("IF", "function")]
     [InlineData("TF", "function")]
     public void Classifica_o_tipo_do_objeto(string sys, string kind) => Assert.Equal(kind, MetadataReader.ObjectKind(sys));
+
+    [Theory]
+    [InlineData("decimal(10,2)")]
+    [InlineData("varchar(50)")]
+    [InlineData("tinyint(1)")]
+    [InlineData("int")]
+    public void MySql_usa_COLUMN_TYPE_como_veio(string columnType)
+    {
+        var t = new DataTable();
+        foreach (var c in new[] { "s", "o", "c", "type" }) t.Columns.Add(c, typeof(string));
+        t.Rows.Add("db", "tab", "col", columnType);
+        using var reader = t.CreateDataReader();
+        reader.Read();
+        Assert.Equal(columnType, ProviderRegistry.Get(ProviderIds.MySql).Metadata.FormatType(reader));
+    }
+
+    [Theory]
+    [InlineData("U", "table")]
+    [InlineData("V", "view")]
+    [InlineData("P", "procedure")]
+    [InlineData("FN", "function")]
+    public void MySql_classifica_o_tipo_do_objeto(string raw, string kind) =>
+        Assert.Equal(kind, ProviderRegistry.Get(ProviderIds.MySql).Metadata.ObjectKind(raw));
+
+    [Fact]
+    public void MySql_nao_tem_nivel_de_schema_e_sql_Server_tem()
+    {
+        Assert.False(ProviderRegistry.Get(ProviderIds.MySql).Metadata.HasSchemaLevel);
+        Assert.True(ProviderRegistry.Get(ProviderIds.SqlServer).Metadata.HasSchemaLevel);
+    }
 
     [Fact]
     public async Task Le_objetos_e_deriva_os_schemas_com_dbo_primeiro()

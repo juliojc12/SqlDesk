@@ -5,9 +5,14 @@ import { btnBase, btnDanger, Modal } from './Modal'
 
 const amberBtn = 'rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-amber-400'
 
-/** Primeira confirmação: nada foi executado. Cancelar é o padrão (recebe o foco), para que um Enter distraído não confirme. */
-export function DangerDialog({ blocked, onCancel, onContinue }: {
+/**
+ * Primeira confirmação: nada foi executado. Cancelar é o padrão (recebe o foco), para que um Enter distraído não confirme.
+ * Com `irreversible` (MySQL/MariaDB com DDL, comando que confirma sozinho ou alvo em tabela sem transação, como MyISAM), o texto roda direto, sem transação e sem a
+ * segunda confirmação: o diálogo avisa que não haverá volta.
+ */
+export function DangerDialog({ blocked, irreversible = false, onCancel, onContinue }: {
   blocked: { line: number; description: string }[]
+  irreversible?: boolean
   onCancel: () => void
   onContinue: () => void
 }) {
@@ -28,12 +33,20 @@ export function DangerDialog({ blocked, onCancel, onContinue }: {
             </li>
           ))}
         </ul>
-        <p className="mt-3 text-sm text-muted">
-          Se continuar, o texto roda dentro de uma transação e você verá o resultado antes de decidir entre Commit e Rollback.
-        </p>
+        {irreversible ? (
+          <p role="note" data-testid="irreversible-warning" className="mt-3 rounded-md border border-red-600 bg-red-600/15 px-3 py-2 text-sm">
+            Este comando muda a estrutura do banco ou grava de forma definitiva e <strong>não pode ser desfeito</strong>: o MySQL/MariaDB
+            confirma sozinho mudanças de estrutura, e tabelas sem transação (como MyISAM) não voltam com Rollback. Não haverá
+            Commit/Rollback depois.
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-muted">
+            Se continuar, o texto roda dentro de uma transação e você verá o resultado antes de decidir entre Commit e Rollback.
+          </p>
+        )}
         <div className="mt-5 flex justify-end gap-2">
           <button ref={cancelRef} onClick={onCancel} className={btnBase}>Cancelar</button>
-          <button onClick={onContinue} className={btnDanger}>Continuar</button>
+          <button onClick={onContinue} className={btnDanger}>{irreversible ? 'Executar mesmo assim' : 'Continuar'}</button>
         </div>
       </div>
     </Modal>

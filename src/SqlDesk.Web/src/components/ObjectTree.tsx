@@ -18,7 +18,7 @@ interface Props {
   onOpen: (o: MetaObject) => void
 }
 
-/** Schemas, tabelas, views, procedures e funções de uma conexão, a partir do cache de metadados. */
+/** Schemas (ou bancos, no MySQL), tabelas, views, procedures e funções de uma conexão, a partir do cache de metadados. */
 export function ObjectTree({ index, loading, error, onOpen }: Props) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const [shown, setShown] = useState<Record<string, number>>({})
@@ -45,7 +45,7 @@ export function ObjectTree({ index, loading, error, onOpen }: Props) {
           <div key={schema} role="treeitem" aria-expanded={open.has(sKey)}>
             <button className={row} onClick={() => toggle(sKey)}>
               <span className="icon w-3 text-[10px] text-muted">{open.has(sKey) ? '' : ''}</span>
-              <span className="truncate">{schema}</span>
+              <span className="truncate" title={index.hasSchemaLevel ? 'schema' : 'banco'}>{schema}</span>
               <span className="ml-auto text-xs text-muted">{objects.length}</span>
             </button>
             {open.has(sKey) && (

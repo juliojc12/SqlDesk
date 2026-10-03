@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ConnectionInfo } from '../contracts'
 import { useMeta } from '../metadataStore'
 import type { MetaObject } from '../metadataIndex'
+import { providerOf } from '../providers'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { ObjectTree } from './ObjectTree'
 
@@ -72,7 +73,7 @@ export function Sidebar({ connections, selectedId, connectedIds, width, onSelect
                 onSelect(c.id)
                 setMenu({ x: e.clientX, y: e.clientY, conn: c })
               }}
-              title={`${c.settings.server} · ${c.settings.database}${connectedIds.has(c.id) ? ' (conectado)' : ''}`}
+              title={`${providerOf(c.settings).name} · ${c.settings.server} · ${c.settings.database}${connectedIds.has(c.id) ? ' (conectado)' : ''}`}
               className={`flex cursor-pointer items-center gap-2 rounded-lg py-2 pl-1 pr-3 text-[15px] ${c.id === selectedId ? 'bg-selected' : 'hover:bg-hover'}`}
             >
               <button
@@ -92,7 +93,8 @@ export function Sidebar({ connections, selectedId, connectedIds, width, onSelect
                 style={{ backgroundColor: c.color, boxShadow: connectedIds.has(c.id) ? `0 0 0 3px color-mix(in srgb, ${c.color} 30%, transparent)` : undefined }}
                 data-testid="dot"
               />
-              <span className="truncate">{c.name}</span>
+              <span className="min-w-0 flex-1 truncate">{c.name}</span>
+              <span className="shrink-0 text-xs text-muted" data-testid="provider">{providerOf(c.settings).name}</span>
             </div>
             {expanded.has(c.id) && <ConnectionTree conn={c} onOpenObject={onOpenObject} />}
           </li>

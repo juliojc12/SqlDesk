@@ -56,7 +56,7 @@ public abstract class TranCommandHandler(QueryRunner runner, GuardedRunner guard
             return new TranResponse(n);
         }
         catch (TabNotConnectedException ex) { throw new BridgeException("not_connected", ex.Message); }
-        catch (Microsoft.Data.SqlClient.SqlException ex) { throw new BridgeException("sql_error", ex.Message); }
+        catch (System.Data.Common.DbException ex) { throw new BridgeException("sql_error", ex.Message); }
     }
 }
 

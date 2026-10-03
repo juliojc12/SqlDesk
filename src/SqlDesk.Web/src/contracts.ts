@@ -1,4 +1,5 @@
 // Contratos da ponte JS/C#. Espelham os records em SqlDesk.Host/Bridge/Contracts.cs.
+import type { ProviderId } from './providers'
 
 export interface Envelope<T = unknown> {
   id: string | null
@@ -25,6 +26,8 @@ export interface ConnectionSettings {
   encrypt: boolean
   trustServerCertificate: boolean
   advanced: Record<string, string>
+  /** Banco da conexão; ausente em conexões salvas antes do MySQL (vale SQL Server, ver providerOf). */
+  provider?: ProviderId
 }
 
 /** A senha nunca vem do backend: só o indicador hasPassword. */
@@ -89,7 +92,7 @@ export interface ExecuteRequest {
   skipTranAdvice?: boolean
 }
 
-export type DangerKind = 'updateWithoutWhere' | 'deleteWithoutWhere' | 'truncateTable' | 'drop' | 'dropColumn' | 'unanalyzable'
+export type DangerKind = 'updateWithoutWhere' | 'deleteWithoutWhere' | 'truncateTable' | 'drop' | 'dropColumn' | 'alterTable' | 'unanalyzable'
 
 export interface GuardChange {
   kind: DangerKind
@@ -126,6 +129,8 @@ export interface ExecuteResponse {
   blocked?: { line: number; description: string }[]
   range?: DocRange
   guard?: GuardInfo
+  /** Em needs_confirmation: MySQL/MariaDB com DDL, comando que confirma sozinho ou trecho opaco: roda sem transação e sem segunda confirmação (não tem volta). */
+  irreversible?: boolean
 }
 
 export interface ExportDone { path: string; rows: number; elapsedMs: number }
@@ -154,7 +159,7 @@ export interface Requests {
     response: TestConnectionResult
   }
   'connections.parse': {
-    request: { connectionString: string }
+    request: { connectionString: string; provider?: ProviderId }
     response: { settings: ConnectionSettings; password?: string | null }
   }
   'connections.disconnect': { request: { id: string }; response: Record<string, never> }

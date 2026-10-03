@@ -1,3 +1,4 @@
+using SqlDesk.SqlAnalysis;
 using SqlDesk.Core.Execution;
 
 namespace SqlDesk.Core.Tests;
@@ -6,13 +7,30 @@ public class ExecutionPlannerTests
 {
     private static ExecutionPlan.Runnable Runnable(ExecutionPlan p) => Assert.IsType<ExecutionPlan.Runnable>(p);
 
+    private sealed class DangerAlwaysAnalyzer : ISqlAnalyzer
+    {
+        public ScriptAnalysis Analyze(string script) => new(
+            [new Batch(0, script, 0, 1)],
+            [new DangerousStatement(DangerKind.Unanalyzable, 0, script.Length, 1, "x", null, [], false)], [], []);
+        public LocateResult Locate(string text, int cursor) => new(new TextRange(0, text.Length), null, false);
+        public RewriteResult Rewrite(string script) => new([], [], []);
+        public bool IsReadOnly(string script, out string? reason) { reason = null; return true; }
+    }
+
+    [Fact]
+    public void Usa_o_analisador_recebido()
+    {
+        var plan = ExecutionPlanner.Plan(new DangerAlwaysAnalyzer(), "SELECT 1", 0, 0, 0, wholeScript: true);
+        Assert.IsType<ExecutionPlan.Dangerous>(plan);
+    }
+
     [Fact]
     public void Sem_selecao_executa_o_statement_sob_o_cursor_e_destaca_o_trecho()
     {
         const string text = "SELECT 1;\nSELECT 2;\nSELECT 3;";
         var cursor = text.IndexOf("SELECT 2", StringComparison.Ordinal) + 3;
 
-        var plan = Runnable(ExecutionPlanner.Plan(text, cursor, cursor, cursor, wholeScript: false));
+        var plan = Runnable(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, text, cursor, cursor, cursor, wholeScript: false));
 
         Assert.Equal("SELECT 2", plan.Batches.Single().Text.Trim().TrimEnd(';'));
         Assert.Equal(text.IndexOf("SELECT 2", StringComparison.Ordinal), plan.BaseOffset);
@@ -26,7 +44,7 @@ public class ExecutionPlannerTests
         const string text = "SELECT 1;\nSELECT 2;\nSELECT 3;";
         var start = text.IndexOf("SELECT 2", StringComparison.Ordinal);
 
-        var plan = Runnable(ExecutionPlanner.Plan(text, 0, start, start + "SELECT 2;".Length, wholeScript: false));
+        var plan = Runnable(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, text, 0, start, start + "SELECT 2;".Length, wholeScript: false));
 
         Assert.Equal("SELECT 2;", plan.Batches.Single().Text);
         Assert.Equal(start, plan.BaseOffset);
@@ -37,7 +55,7 @@ public class ExecutionPlannerTests
     public void Selecao_invertida_tambem_vale()
     {
         const string text = "SELECT 1; SELECT 2;";
-        var plan = Runnable(ExecutionPlanner.Plan(text, 0, 9, 0, wholeScript: false));
+        var plan = Runnable(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, text, 0, 9, 0, wholeScript: false));
         Assert.Equal("SELECT 1;", plan.Batches.Single().Text);
     }
 
@@ -46,7 +64,7 @@ public class ExecutionPlannerTests
     {
         const string text = "SELECT 1\nGO\nSELECT 2";
 
-        var plan = Runnable(ExecutionPlanner.Plan(text, 3, 0, 5, wholeScript: true));
+        var plan = Runnable(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, text, 3, 0, 5, wholeScript: true));
 
         Assert.Equal(2, plan.Batches.Count);
         Assert.Equal(0, plan.BaseOffset);
@@ -59,7 +77,7 @@ public class ExecutionPlannerTests
         const string text = "SELECT 1;\n\n\nSELECT 2;";
         var cursor = text.IndexOf("\n\n\n", StringComparison.Ordinal) + 2;
 
-        var plan = ExecutionPlanner.Plan(text, cursor, cursor, cursor, wholeScript: false);
+        var plan = ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, text, cursor, cursor, cursor, wholeScript: false);
 
         Assert.IsType<ExecutionPlan.Nothing>(plan);
     }
@@ -67,9 +85,9 @@ public class ExecutionPlannerTests
     [Fact]
     public void Texto_vazio_ou_so_espacos_nao_executa_nada()
     {
-        Assert.IsType<ExecutionPlan.Nothing>(ExecutionPlanner.Plan("   \n ", 0, 0, 0, wholeScript: true));
-        Assert.IsType<ExecutionPlan.Nothing>(ExecutionPlanner.Plan("   ", 0, 0, 0, wholeScript: false));
-        Assert.IsType<ExecutionPlan.Nothing>(ExecutionPlanner.Plan("SELECT 1    ", 0, 8, 12, wholeScript: false));
+        Assert.IsType<ExecutionPlan.Nothing>(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, "   \n ", 0, 0, 0, wholeScript: true));
+        Assert.IsType<ExecutionPlan.Nothing>(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, "   ", 0, 0, 0, wholeScript: false));
+        Assert.IsType<ExecutionPlan.Nothing>(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, "SELECT 1    ", 0, 8, 12, wholeScript: false));
     }
 
     [Fact]
@@ -77,7 +95,7 @@ public class ExecutionPlannerTests
     {
         const string text = "SELECT 1;\nSELECT 2;\nUPDATE dbo.Clientes SET Nome = 'x';";
 
-        var plan = Assert.IsType<ExecutionPlan.Dangerous>(ExecutionPlanner.Plan(text, 0, 0, 0, wholeScript: true));
+        var plan = Assert.IsType<ExecutionPlan.Dangerous>(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, text, 0, 0, 0, wholeScript: true));
 
         var blocked = Assert.Single(plan.Blocked);
         Assert.Equal(3, blocked.Line);
@@ -91,7 +109,7 @@ public class ExecutionPlannerTests
         const string text = "SELECT 1;\n\nDELETE FROM dbo.T;";
         var start = text.IndexOf("DELETE", StringComparison.Ordinal);
 
-        var plan = Assert.IsType<ExecutionPlan.Dangerous>(ExecutionPlanner.Plan(text, 0, start, text.Length, wholeScript: false));
+        var plan = Assert.IsType<ExecutionPlan.Dangerous>(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, text, 0, start, text.Length, wholeScript: false));
 
         Assert.Equal(3, Assert.Single(plan.Blocked).Line);
         Assert.Equal(start, plan.BaseOffset);
@@ -102,7 +120,7 @@ public class ExecutionPlannerTests
     {
         const string text = "SELECT 1;\nDROP TABLE dbo.T;";
 
-        var plan = Runnable(ExecutionPlanner.Plan(text, 0, 0, 9, wholeScript: false));
+        var plan = Runnable(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, text, 0, 0, 9, wholeScript: false));
 
         Assert.Equal("SELECT 1;", plan.Batches.Single().Text);
     }
@@ -113,20 +131,20 @@ public class ExecutionPlannerTests
         const string text = "SELECT 1;\nTRUNCATE TABLE dbo.T;";
         var cursor = text.IndexOf("TRUNCATE", StringComparison.Ordinal) + 2;
 
-        Assert.IsType<ExecutionPlan.Dangerous>(ExecutionPlanner.Plan(text, cursor, cursor, cursor, wholeScript: false));
+        Assert.IsType<ExecutionPlan.Dangerous>(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, text, cursor, cursor, cursor, wholeScript: false));
     }
 
     [Fact]
     public void GO_com_repeticao_e_recusado()
     {
-        var plan = Assert.IsType<ExecutionPlan.Refused>(ExecutionPlanner.Plan("INSERT INTO t VALUES (1)\nGO 5", 0, 0, 0, wholeScript: true));
+        var plan = Assert.IsType<ExecutionPlan.Refused>(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, "INSERT INTO t VALUES (1)\nGO 5", 0, 0, 0, wholeScript: true));
         Assert.Contains("GO 5", plan.Message);
     }
 
     [Fact]
     public void Cursor_alem_do_fim_e_ajustado()
     {
-        var plan = Runnable(ExecutionPlanner.Plan("SELECT 1", 999, 999, 999, wholeScript: false));
+        var plan = Runnable(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, "SELECT 1", 999, 999, 999, wholeScript: false));
         Assert.Equal("SELECT 1", plan.Batches.Single().Text);
     }
 
@@ -138,7 +156,7 @@ public class ExecutionPlannerTests
     [InlineData("INSERT INTO dbo.T (a) VALUES (1)", false)]
     public void Detecta_escrita_com_filtro_para_recomendar_transacao(string sql, bool escreve)
     {
-        var plan = Runnable(ExecutionPlanner.Plan(sql, 0, 0, 0, wholeScript: true));
+        var plan = Runnable(ExecutionPlanner.Plan(SqlServerAnalyzer.Instance, sql, 0, 0, 0, wholeScript: true));
         Assert.Equal(escreve, plan.HasWrites);
         Assert.Equal(new DocRange(0, sql.Length), plan.Range);
     }

@@ -11,6 +11,9 @@ public sealed record ConnectionSettings(
     IReadOnlyDictionary<string, string>? Advanced = null)
 {
     public IReadOnlyDictionary<string, string> Advanced { get; init; } = Advanced ?? new Dictionary<string, string>();
+
+    /// <summary>Banco da conexão. Ausente em conexões salvas antes do MySQL: vale SQL Server.</summary>
+    public string Provider { get; init; } = SqlDesk.Core.Providers.ProviderIds.SqlServer;
 }
 
 /// <summary>Conexão como vista pelo frontend: a senha nunca sai do backend, só o indicador <see cref="HasPassword"/>.</summary>

@@ -112,13 +112,13 @@ public static class ExportService
     /// Só reexecuta texto que apenas lê dados: repetir um INSERT, um EXEC ou um SELECT ... INTO repetiria o efeito.
     /// </summary>
     public static Task<ExportResult> ExportByRerunAsync(
-        IBatchRunner runner, string tabId, string sourceText, ExportFormat format, string path, char delimiter,
+        IBatchRunner runner, string tabId, string sourceText, ISqlAnalyzer analyzer, ExportFormat format, string path, char delimiter,
         int resultOrdinal, IReadOnlyList<int>? columnOrder, Action<long>? progress, CancellationToken ct) =>
         WriteAtomicAsync(path, fs => CreateWriter(format, fs, delimiter), async writer =>
         {
-            if (ExecutionPlanner.Plan(sourceText, 0, 0, sourceText.Length, wholeScript: true) is not ExecutionPlan.Runnable plan)
+            if (ExecutionPlanner.Plan(analyzer, sourceText, 0, 0, sourceText.Length, wholeScript: true) is not ExecutionPlan.Runnable plan)
                 throw new ExportFailedException("O texto contém comandos que exigem confirmação (UPDATE/DELETE sem WHERE, TRUNCATE ou DROP) e não será reexecutado para exportar.");
-            if (!ReadOnlyAnalyzer.IsReadOnly(sourceText, out var reason))
+            if (!analyzer.IsReadOnly(sourceText, out var reason))
                 throw new ExportFailedException($"Não é seguro reexecutar este texto para exportar: {reason}. Exporte só as linhas carregadas.");
 
             var sink = new ExportSink(writer, resultOrdinal, columnOrder, progress, ct);

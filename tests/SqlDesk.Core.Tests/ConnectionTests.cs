@@ -1,4 +1,5 @@
 using SqlDesk.Core.Connections;
+using SqlDesk.Core.Providers;
 
 namespace SqlDesk.Core.Tests;
 
@@ -165,4 +166,37 @@ public class SqlErrorTranslatorTests
     [Fact]
     public void Erro_desconhecido_nao_e_classificado() =>
         Assert.Null(SqlErrorTranslator.Classify(9999, "outra coisa"));
+}
+
+public class ConnectionProviderFieldTests
+{
+    [Fact]
+    public void Json_antigo_sem_provider_vira_sqlserver()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var path = Path.Combine(dir, "connections.json");
+        var id = Guid.NewGuid();
+        var json = "{\"version\":1,\"connections\":[{\"id\":\"" + id + "\",\"name\":\"Velha\",\"color\":\"#0078D4\"," +
+                   "\n \"settings\":{\"server\":\"srv\",\"database\":\"db\",\"user\":\"u\",\"connectTimeout\":15,\"commandTimeout\":30," +
+                   "\n             \"encrypt\":true,\"trustServerCertificate\":false,\"advanced\":{}}}]}";
+        File.WriteAllText(path, json);
+        var store = new ConnectionStore(path, new NoopProtector());
+        Assert.Equal(ProviderIds.SqlServer, store.Get(id)!.Settings.Provider);
+    }
+
+    [Fact]
+    public void Provider_mysql_sobrevive_ao_salvar_e_ler()
+    {
+        var path = Path.Combine(Directory.CreateTempSubdirectory().FullName, "c.json");
+        var store = new ConnectionStore(path, new NoopProtector());
+        var saved = store.Save(new SaveConnectionRequest(null, "My", "#112233",
+            new ConnectionSettings("h", "d", "u") { Provider = ProviderIds.MySql }, null));
+        Assert.Equal(ProviderIds.MySql, new ConnectionStore(path, new NoopProtector()).Get(saved.Id)!.Settings.Provider);
+    }
+
+    private sealed class NoopProtector : IPasswordProtector
+    {
+        public string Protect(string plain) => plain;
+        public string Unprotect(string protectedText) => protectedText;
+    }
 }

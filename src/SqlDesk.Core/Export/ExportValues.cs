@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using MySqlConnector;
 using SqlDesk.Core.Execution;
 
 namespace SqlDesk.Core.Export;
@@ -23,7 +24,8 @@ public static class ExportValues
                     : dt.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture);
             case DateTimeOffset dto: return dto.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFFzzz", CultureInfo.InvariantCulture);
             case DateOnly d: return d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            case TimeSpan ts: return ts.ToString(@"hh\:mm\:ss\.FFFFFFF", CultureInfo.InvariantCulture).TrimEnd('.');
+            case TimeSpan ts: return CellValues.FormatTime(ts);
+            case MySqlDateTime mdt: return CellValues.FormatMySqlDateTime(mdt, typeName, 'T');
             case TimeOnly t: return t.ToString("HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture).TrimEnd('.');
             case byte[] bytes: return Hex(bytes);
             case Guid g: return g.ToString();
@@ -40,8 +42,10 @@ public static class ExportValues
         switch (v)
         {
             case null or DBNull: return null;
-            case string or bool or byte or short or int or long or float or double or decimal or DateTime: return v;
+            case string or bool or byte or sbyte or short or ushort or int or uint or long or float or double or decimal or DateTime: return v;
+            case ulong ul: return (decimal)ul; // decimal guarda os 20 dígitos do ulong sem perda
             case DateOnly d: return d.ToDateTime(TimeOnly.MinValue);
+            case MySqlDateTime { IsValidDateTime: true } mdt: return mdt.GetDateTime();
             default: return ToText(v, typeName); // DateTimeOffset, TimeSpan, Guid, binário...
         }
     }

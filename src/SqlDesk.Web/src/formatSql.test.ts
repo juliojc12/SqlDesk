@@ -105,3 +105,41 @@ describe('formatSql: segurança', () => {
     expect(r.ok).toBe(false)
   })
 })
+
+describe('formatSql: MySQL', () => {
+  const my = (text: string) => {
+    const r = formatSql(text, 'mysql')
+    if (!r.ok) throw new Error('falhou: ' + r.reason)
+    return r.text
+  }
+
+  it('preserva identificadores entre crases e não coloca colchetes', () => {
+    const t = my('select `a`.`b` from `t`')
+    expect(t).toContain('`a`.`b`')
+    expect(t).toContain('`t`')
+    expect(t).not.toMatch(/[[\]]/)
+    expect(t).toMatch(/^SELECT/)
+  })
+
+  it('LIMIT, comentário # e string com barra invertida', () => {
+    const t = my("select `nome completo` from clientes # todos\nwhere obs = 'it\\'s' limit 10")
+    expect(t).toContain('`nome completo`')
+    expect(t).toContain('# todos')
+    expect(t).toContain("'it\\'s'")
+    expect(t).toMatch(/LIMIT\s+10/)
+  })
+
+  it('GO não é separador no MySQL (vai para o formatador como texto comum)', () => {
+    const seen: string[] = []
+    formatSql('select 1\nGO\nselect 2', 'mysql', (sql) => {
+      seen.push(sql)
+      return sql
+    })
+    expect(seen).toEqual(['select 1\nGO\nselect 2'])
+  })
+
+  it('o dialeto padrão continua o do SQL Server', () => {
+    expect(formatSql('select [a] from [t]').ok).toBe(true)
+    expect(formatSql('select [a] from [t]', 'sqlserver')).toEqual(formatSql('select [a] from [t]'))
+  })
+})

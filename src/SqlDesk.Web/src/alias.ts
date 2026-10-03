@@ -13,8 +13,10 @@ export const RESERVED_WORDS: ReadonlySet<string> = new Set(
    USER VALUES VARYING VIEW WAITFOR WHEN WHERE WHILE WITH WITHIN WRITETEXT`.split(/\s+/),
 )
 
-/** Tira colchetes/aspas de um identificador: `[Minha Tabela]` vira `Minha Tabela`. */
+/** Tira colchetes/aspas/crases de um identificador: `[Minha Tabela]` vira `Minha Tabela`; `` `a``b` `` vira `` a`b ``. */
 export function unquote(identifier: string): string {
+  const tick = /^`(.*)`$/s.exec(identifier)
+  if (tick) return tick[1].replace(/``/g, '`')
   const m = /^\[(.*)\]$/.exec(identifier) ?? /^"(.*)"$/.exec(identifier)
   return m ? m[1].replace(/\]\]/g, ']') : identifier
 }
@@ -47,10 +49,10 @@ function baseAlias(tableName: string): string {
  * Alias de tabela no estilo do DBeaver. Em conflito com um alias já usado no statement, ou se o resultado for
  * palavra reservada, acrescenta um número (c, c1, c2...; in vira in1).
  */
-export function generateAlias(tableName: string, usedAliases: Iterable<string> = []): string {
+export function generateAlias(tableName: string, usedAliases: Iterable<string> = [], reserved: ReadonlySet<string> = RESERVED_WORDS): string {
   const used = new Set([...usedAliases].map((a) => a.toLowerCase()))
   const base = baseAlias(tableName)
-  const ok = (a: string) => !used.has(a) && !RESERVED_WORDS.has(a.toUpperCase())
+  const ok = (a: string) => !used.has(a) && !reserved.has(a.toUpperCase())
   if (ok(base)) return base
   for (let n = 1; ; n++) {
     const candidate = `${base}${n}`

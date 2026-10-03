@@ -132,7 +132,8 @@ public sealed class ExportLoadedHandler(ExportRegistry registry, EventHub hub) :
 }
 
 /// <summary>Reexecuta o texto na conexão da aba e grava tudo (sem o limite da grade) direto no arquivo, em streaming.</summary>
-public sealed class ExportRerunHandler(ExportRegistry registry, QueryRunner runner, EventHub hub) : MessageHandler<ExportRerunRequest, ExportDoneResponse>
+public sealed class ExportRerunHandler(ExportRegistry registry, QueryRunner runner, TabSessionManager sessions, EventHub hub)
+    : MessageHandler<ExportRerunRequest, ExportDoneResponse>
 {
     public override string Type => "export.rerun";
 
@@ -143,9 +144,12 @@ public sealed class ExportRerunHandler(ExportRegistry registry, QueryRunner runn
         var cts = registry.Start(r.ExportId);
         try
         {
+            // A reexecução passa pela mesma análise de segurança, no dialeto do banco da aba.
+            var analyzer = sessions.GetProvider(r.TabId)?.Analyzer
+                ?? throw new TabNotConnectedException("A aba não está conectada. Conecte antes de executar.");
             // Task.Run: sem o contexto da interface, as continuações do leitor e a escrita ficam no pool de threads.
             var result = await Task.Run(() => ExportService.ExportByRerunAsync(
-                runner, r.TabId, r.SourceText, format, r.Path, delimiter, r.ResultOrdinal, r.ColumnOrder,
+                runner, r.TabId, r.SourceText, analyzer, format, r.Path, delimiter, r.ResultOrdinal, r.ColumnOrder,
                 n => hub.Publish("export.progress", new ExportProgressEvent(r.ExportId, n)), cts.Token), cts.Token);
             registry.Remember(result.Path);
             return new ExportDoneResponse(result.Path, result.Rows, result.ElapsedMs);

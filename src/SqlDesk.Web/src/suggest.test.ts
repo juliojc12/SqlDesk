@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildIndex, type MetadataDto } from './metadataIndex'
 import { analyze, detectContext, parseTableRefs, scan, statementBounds } from './sqlContext'
 import { displayName, quoteIfNeeded, suggest } from './suggest'
+import { unquote } from './alias'
 
 const dto: MetadataDto = {
   loaded: true, columnsLoaded: true, loading: false,
@@ -275,5 +276,139 @@ describe('quoteIfNeeded e displayName', () => {
     expect(quoteIfNeeded('a]b')).toBe('[a]]b]')
     expect(displayName({ schema: 'dbo', name: 'Clientes', type: 'table' })).toBe('Clientes')
     expect(displayName({ schema: 'vendas', name: 'Pedidos', type: 'table' })).toBe('vendas.Pedidos')
+  })
+})
+
+describe('suggest: MySQL (sem nível de schema)', () => {
+  const my = buildIndex({
+    loaded: true, columnsLoaded: true, loading: false, hasSchemaLevel: false,
+    schemas: ['outro', 'sqldesk_test'],
+    objects: [
+      { schema: 'sqldesk_test', name: 't', type: 'table' },
+      { schema: 'outro', name: 't', type: 'table' },
+      { schema: 'outro', name: 'u', type: 'view' },
+      { schema: 'sqldesk_test', name: 'p', type: 'procedure' },
+    ],
+    columns: {},
+  }, 'sqldesk_test')
+
+  it('tabela do banco atual sai sem qualificação e a de outro banco qualificada', () => {
+    const r = at('SELECT * FROM |', off, my)
+    const t = r.items.find((i) => i.label === 't')!
+    expect(t.insertText).toBe('t')
+    expect(r.items.find((i) => i.label === 'outro.t')!.insertText).toBe('outro.t')
+    expect(labels(r)).not.toContain('sqldesk_test.t')
+  })
+
+  it('oferece os outros bancos como primeiro nível, não o atual', () => {
+    const dbs = at('SELECT * FROM |', off, my).items.filter((i) => i.kind === 'schema')
+    expect(dbs.map((i) => i.label)).toEqual(['outro'])
+    expect(dbs[0].description).toBe('banco')
+  })
+
+  it('depois de "outro." oferece as tabelas daquele banco', () => {
+    expect(labels(at('SELECT * FROM outro.|', off, my)).sort()).toEqual(['t', 'u'])
+  })
+
+  it('procedure do banco atual sai sem qualificação no EXEC', () => {
+    expect(labels(at('EXEC |', off, my))).toEqual(['p'])
+  })
+
+  it('SQL Server segue com dbo curto e demais schemas qualificados', () => {
+    const l = labels(at('SELECT * FROM |', off))
+    expect(l).toContain('Clientes')
+    expect(l).toContain('vendas.Pedidos')
+    expect(at('SELECT * FROM |', off).items.find((i) => i.label === 'vendas')!.description).toBe('schema')
+  })
+})
+
+describe('MySQL: crases, comentários e separadores', () => {
+  const my = { autoAlias: true, provider: 'mysql' as const }
+  const myIndex = buildIndex({
+    loaded: true, columnsLoaded: true, loading: false, hasSchemaLevel: false,
+    schemas: ['loja', 'sqldesk_test'],
+    objects: [
+      { schema: 'sqldesk_test', name: 'clientes', type: 'table' },
+      { schema: 'sqldesk_test', name: 'Minha Tabela', type: 'table' },
+      { schema: 'sqldesk_test', name: 'order', type: 'table' },
+      { schema: 'loja', name: 'pedidos', type: 'table' },
+      { schema: 'sqldesk_test', name: 'limpa', type: 'procedure' },
+    ],
+    columns: {
+      'sqldesk_test.clientes': [{ name: 'id', type: 'int', nullable: false }, { name: 'nome completo', type: 'varchar(50)', nullable: true }],
+      'loja.pedidos': [{ name: 'numero', type: 'int', nullable: false }],
+    },
+  }, 'sqldesk_test')
+  const atMy = (s: string, idx = myIndex) => at(s, my, idx)
+
+  it('unquote tira as crases e desfaz a crase dobrada', () => {
+    expect(unquote('`tabela`')).toBe('tabela')
+    expect(unquote('`a``b`')).toBe('a`b')
+  })
+
+  it('parseTableRefs reconhece `schema`.`tabela` e `alias`', () => {
+    expect(parseTableRefs('SELECT * FROM `loja`.`pedidos` `p` JOIN `sqldesk_test`.`Minha Tabela` AS `m` ON 1=1')).toEqual([
+      { schema: 'loja', name: 'pedidos', alias: 'p' },
+      { schema: 'sqldesk_test', name: 'Minha Tabela', alias: 'm' },
+    ])
+  })
+
+  it('detectContext reconhece `alias`. como qualificado', () => {
+    expect(detectContext('SELECT `p`.')).toEqual({ kind: 'qualified', parts: ['p'] })
+    expect(detectContext('SELECT * FROM `loja`.')).toEqual({ kind: 'qualified', parts: ['loja'] })
+  })
+
+  it('scan mascara # e "-- " mas mantém as crases; strings com barra invertida não terminam antes da hora', () => {
+    const s = "SELECT 1 # DROP x\nFROM `a b` -- DELETE\nWHERE c = 'it\\'s UPDATE'"
+    const { masked } = scan(s, s.length, 'mysql')
+    expect(masked.length).toBe(s.length)
+    expect(masked).not.toMatch(/DROP|DELETE|UPDATE/)
+    expect(masked).toContain('`a b`')
+    expect(scan(s, s.length, 'mysql').inside).toBe(false)
+    expect(scan('SELECT 1 # nota', 14, 'mysql').inside).toBe(true)
+  })
+
+  it('no SQL Server, # e crase continuam como antes', () => {
+    expect(scan('SELECT #tmp', 11).masked).toBe('SELECT #tmp')
+  })
+
+  it('"--" sem espaço não é comentário no MySQL', () => {
+    expect(scan('SELECT 1--1', 11, 'mysql').masked).toBe('SELECT 1--1')
+  })
+
+  it('no MySQL GO não separa statements, ; separa', () => {
+    const b = (t: string, c: number) => {
+      const r = statementBounds(t, c, 'mysql')
+      return t.slice(r.start, r.end).trim()
+    }
+    expect(b('SELECT 1\nGO\nSELECT 2', 18)).toBe('SELECT 1\nGO\nSELECT 2')
+    expect(b('SELECT 1; SELECT 2; SELECT 3', 14)).toBe('SELECT 2')
+  })
+
+  it('alias entre crases resolve as colunas da tabela', () => {
+    expect(labels(atMy('SELECT `c`.| FROM `clientes` `c`'))).toEqual(['id', 'nome completo'])
+    expect(labels(atMy('SELECT p.| FROM `loja`.`pedidos` p'))).toEqual(['numero'])
+  })
+
+  it('nomes que precisam de aspas saem entre crases (espaço ou palavra reservada do MySQL)', () => {
+    const r = atMy('SELECT * FROM |')
+    expect(r.items.find((i) => i.label === 'Minha Tabela')?.insertText).toBe('`Minha Tabela` mt')
+    expect(r.items.find((i) => i.label === 'order')?.insertText).toBe('`order` o')
+    expect(r.items.find((i) => i.label === 'clientes')?.insertText).toBe('clientes c')
+    expect(atMy('SELECT c.| FROM clientes c').items.find((i) => i.label === 'nome completo')?.insertText).toBe('`nome completo`')
+  })
+
+  it('palavra reservada só do MySQL (LIMIT) ganha crases; no SQL Server não', () => {
+    expect(quoteIfNeeded('limit', 'mysql')).toBe('`limit`')
+    expect(quoteIfNeeded('limit')).toBe('limit')
+    expect(quoteIfNeeded('a`b', 'mysql')).toBe('`a``b`')
+  })
+
+  it('CALL lista as procedures no MySQL', () => {
+    expect(labels(atMy('CALL |'))).toEqual(['limpa'])
+  })
+
+  it('comentário # não gera sugestão', () => {
+    expect(atMy('SELECT 1 # nota|').items).toEqual([])
   })
 })

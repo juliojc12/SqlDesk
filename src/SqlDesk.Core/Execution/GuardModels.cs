@@ -35,6 +35,9 @@ public static class GuardStatus
 
     /// <summary>A transação deixou de existir durante o script (COMMIT/ROLLBACK dentro dele): não há mais o que desfazer.</summary>
     public const string TransactionLost = "tran_lost";
+
+    /// <summary>Executado direto, sem transação nem segunda confirmação (DDL no MySQL/MariaDB: não tem como desfazer).</summary>
+    public const string Completed = "completed";
 }
 
 public sealed record GuardOutcome(string Status, long ElapsedMs, long TotalRows, GuardInfo? Pending);

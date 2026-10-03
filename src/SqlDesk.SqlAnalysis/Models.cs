@@ -17,8 +17,17 @@ public enum DangerKind
     TruncateTable,
     Drop,
     DropColumn,
+    /// <summary>ALTER que muda a estrutura do banco (no MySQL o DDL confirma sozinho e não tem volta).</summary>
+    AlterTable,
     /// <summary>Não foi possível analisar (erro de sintaxe) e o trecho contém UPDATE/DELETE/TRUNCATE/DROP.</summary>
     Unanalyzable,
+}
+
+public static class DangerKinds
+{
+    /// <summary>Muda a estrutura do banco (TRUNCATE, DROP, DROP COLUMN, ALTER): no MySQL/MariaDB confirma sozinho.</summary>
+    public static bool IsDdl(DangerKind k) =>
+        k is DangerKind.TruncateTable or DangerKind.Drop or DangerKind.DropColumn or DangerKind.AlterTable;
 }
 
 /// <summary>

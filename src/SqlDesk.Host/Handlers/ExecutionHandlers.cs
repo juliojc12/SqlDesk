@@ -54,7 +54,8 @@ public sealed class TransactionNotifier(TransactionService tran, TabSessionManag
 /// o frontend só envia texto, cursor, seleção e as respostas aos diálogos.
 /// </summary>
 public sealed class ExecuteHandler(
-    QueryRunner runner, GuardedRunner guard, TransactionNotifier notifier, EventHub hub) : MessageHandler<ExecuteRequest, ExecuteResponse>
+    QueryRunner runner, GuardedRunner guard, TransactionNotifier notifier, TabSessionManager sessions, EventHub hub)
+    : MessageHandler<ExecuteRequest, ExecuteResponse>
 {
     public override string Type => "query.execute";
 
@@ -66,7 +67,10 @@ public sealed class ExecuteHandler(
             throw new BridgeException("guard_pending", "Há uma decisão de commit/rollback pendente nesta aba. Resolva-a antes de executar outro comando.");
 
         var sink = new BridgeSink(hub, r.TabId, r.ExecutionId);
-        var plan = ExecutionPlanner.Plan(r.Text, r.Cursor, r.SelectionStart, r.SelectionEnd, wholeScript: r.Mode == "script");
+        // A análise de segurança depende do dialeto do banco da aba.
+        var provider = sessions.GetProvider(r.TabId)
+            ?? throw new BridgeException("not_connected", "A aba não está conectada. Conecte antes de executar.");
+        var plan = ExecutionPlanner.Plan(provider.Analyzer, r.Text, r.Cursor, r.SelectionStart, r.SelectionEnd, wholeScript: r.Mode == "script");
 
         try
         {
@@ -82,9 +86,12 @@ public sealed class ExecuteHandler(
                     return new ExecuteResponse("refused", 0, 0, refused.Message, refused.Blocked.Select(b => new BlockedStatement(b.Line, b.Description)).ToList());
 
                 case ExecutionPlan.Dangerous danger when !r.ConfirmDangerous:
-                    // Primeira confirmação: nada é executado, nem os statements anteriores do script.
+                    // Primeira confirmação: nada é executado, nem os statements anteriores do script. Avisa quando a
+                    // execução não poderá ser desfeita (mesma decisão que o GuardedRunner usa para rodar direto, inclusive
+                    // o mecanismo das tabelas no MySQL/MariaDB: MyISAM não volta com ROLLBACK).
                     return new ExecuteResponse("needs_confirmation", 0, 0, null,
-                        danger.Blocked.Select(b => new BlockedStatement(b.Line, b.Description)).ToList(), danger.Range);
+                        danger.Blocked.Select(b => new BlockedStatement(b.Line, b.Description)).ToList(), danger.Range,
+                        Irreversible: await guard.IsIrreversibleAsync(r.TabId, danger, ct));
 
                 case ExecutionPlan.Dangerous danger:
                 {

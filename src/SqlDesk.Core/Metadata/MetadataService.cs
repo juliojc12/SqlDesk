@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Data.Common;
-using Microsoft.Data.SqlClient;
+using SqlDesk.Core.Providers;
 
 namespace SqlDesk.Core.Metadata;
 
@@ -15,7 +15,8 @@ public sealed record MetadataSnapshot(
     IReadOnlyList<MetaObject> Objects,
     IReadOnlyDictionary<string, IReadOnlyList<MetaColumn>> Columns,
     bool ColumnsLoaded,
-    DateTimeOffset LoadedAt);
+    DateTimeOffset LoadedAt,
+    bool HasSchemaLevel = true);
 
 public static class MetaPhase
 {
@@ -50,23 +51,32 @@ public static class MetadataReader
 
     public static string Key(string schema, string name) => $"{schema}.{name}";
 
-    public static async Task<List<MetaObject>> ReadObjectsAsync(DbDataReader r, CancellationToken ct)
+    /// <summary>Lê a consulta de objetos do SQL Server.</summary>
+    public static Task<List<MetaObject>> ReadObjectsAsync(DbDataReader r, CancellationToken ct) =>
+        ReadObjectsAsync(r, ProviderRegistry.Get(ProviderIds.SqlServer).Metadata, ct);
+
+    /// <summary>Lê a consulta de objetos (schema, nome, tipo bruto) de qualquer provedor.</summary>
+    public static async Task<List<MetaObject>> ReadObjectsAsync(DbDataReader r, IMetadataSql meta, CancellationToken ct)
     {
         var list = new List<MetaObject>();
         while (await r.ReadAsync(ct))
-            list.Add(new MetaObject(r.GetString(0), r.GetString(1), ObjectKind(r.GetString(2))));
+            list.Add(new MetaObject(r.GetString(0), r.GetString(1), meta.ObjectKind(r.GetString(2))));
         return list;
     }
 
-    public static async Task<Dictionary<string, IReadOnlyList<MetaColumn>>> ReadColumnsAsync(DbDataReader r, CancellationToken ct)
+    /// <summary>Lê a consulta de colunas do SQL Server.</summary>
+    public static Task<Dictionary<string, IReadOnlyList<MetaColumn>>> ReadColumnsAsync(DbDataReader r, CancellationToken ct) =>
+        ReadColumnsAsync(r, ProviderRegistry.Get(ProviderIds.SqlServer).Metadata, ct);
+
+    /// <summary>Lê a consulta de colunas (schema, objeto, coluna, ..., nullable na coluna 7) de qualquer provedor.</summary>
+    public static async Task<Dictionary<string, IReadOnlyList<MetaColumn>>> ReadColumnsAsync(DbDataReader r, IMetadataSql meta, CancellationToken ct)
     {
         var map = new Dictionary<string, List<MetaColumn>>(StringComparer.OrdinalIgnoreCase);
         while (await r.ReadAsync(ct))
         {
             var key = Key(r.GetString(0), r.GetString(1));
             if (!map.TryGetValue(key, out var cols)) map[key] = cols = [];
-            cols.Add(new MetaColumn(r.GetString(2), FormatType(r.GetString(3), Convert.ToInt32(r.GetValue(4)), Convert.ToInt32(r.GetValue(5)), Convert.ToInt32(r.GetValue(6))),
-                Convert.ToBoolean(r.GetValue(7))));
+            cols.Add(new MetaColumn(r.GetString(2), meta.FormatType(r), Convert.ToBoolean(r.GetValue(7))));
         }
         return map.ToDictionary(kv => kv.Key, kv => (IReadOnlyList<MetaColumn>)kv.Value, StringComparer.OrdinalIgnoreCase);
     }
@@ -104,7 +114,7 @@ public sealed class MetadataService
 {
     private readonly Func<Guid, Action<string, string?>, Task> _loader;
 
-    public MetadataService(Func<Guid, CancellationToken, Task<SqlConnection>> openConnection)
+    public MetadataService(Func<Guid, CancellationToken, Task<(DbConnection Connection, IDatabaseProvider Provider)>> openConnection)
     {
         _loader = (id, onPhase) => LoadAsync(openConnection, id, onPhase);
     }
@@ -145,30 +155,34 @@ public sealed class MetadataService
         return true;
     }
 
-    private async Task LoadAsync(Func<Guid, CancellationToken, Task<SqlConnection>> openConnection, Guid connectionId, Action<string, string?> onPhase)
+    private async Task LoadAsync(
+        Func<Guid, CancellationToken, Task<(DbConnection Connection, IDatabaseProvider Provider)>> openConnection,
+        Guid connectionId, Action<string, string?> onPhase)
     {
-        await using var conn = await openConnection(connectionId, CancellationToken.None);
+        var (connection, provider) = await openConnection(connectionId, CancellationToken.None);
+        await using var conn = connection;
+        var meta = provider.Metadata;
 
         List<MetaObject> objects;
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = MetadataQueries.Objects;
+            cmd.CommandText = meta.ObjectsSql;
             cmd.CommandTimeout = 60;
             await using var reader = await cmd.ExecuteReaderAsync();
-            objects = await MetadataReader.ReadObjectsAsync(reader, default);
+            objects = await MetadataReader.ReadObjectsAsync(reader, meta, default);
         }
 
         var empty = new Dictionary<string, IReadOnlyList<MetaColumn>>();
-        _cache[connectionId] = new MetadataSnapshot(MetadataReader.SchemasOf(objects), objects, empty, false, DateTimeOffset.UtcNow);
+        _cache[connectionId] = new MetadataSnapshot(MetadataReader.SchemasOf(objects), objects, empty, false, DateTimeOffset.UtcNow, meta.HasSchemaLevel);
         onPhase(MetaPhase.Objects, null);
 
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = MetadataQueries.Columns;
+            cmd.CommandText = meta.ColumnsSql;
             cmd.CommandTimeout = 120;
             await using var reader = await cmd.ExecuteReaderAsync();
-            var columns = await MetadataReader.ReadColumnsAsync(reader, default);
-            _cache[connectionId] = new MetadataSnapshot(MetadataReader.SchemasOf(objects), objects, columns, true, DateTimeOffset.UtcNow);
+            var columns = await MetadataReader.ReadColumnsAsync(reader, meta, default);
+            _cache[connectionId] = new MetadataSnapshot(MetadataReader.SchemasOf(objects), objects, columns, true, DateTimeOffset.UtcNow, meta.HasSchemaLevel);
         }
     }
 }
