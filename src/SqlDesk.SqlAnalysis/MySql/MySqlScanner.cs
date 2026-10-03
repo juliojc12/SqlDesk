@@ -31,12 +31,13 @@ internal static class MySqlScanner
     /// <c>false</c> simula o modo <c>NO_BACKSLASH_ESCAPES</c> do servidor, em que <c>\</c> não escapa nada dentro de strings.
     /// </param>
     /// <param name="executableComments">
-    /// <c>false</c> lê <c>/*!</c>, <c>/*M!</c> e <c>/*+</c> como comentário comum: é o que o servidor faz quando a versão é maior
-    /// que a dele, quando o MySQL vê <c>/*M!</c> ou quando a dica <c>/*+</c> não vem logo após SELECT/INSERT/UPDATE/DELETE/REPLACE.
+    /// <c>false</c> lê <c>/*!</c> e <c>/*M!</c> como comentário comum: é o que o servidor faz quando a versão é maior que a
+    /// dele ou quando o MySQL vê <c>/*M!</c>. Dicas de otimizador (<c>/*+ ... */</c>) são sempre comentário comum: o servidor
+    /// nunca as executa como SQL.
     /// </param>
     /// <param name="gates">
-    /// Se não for null, recebe a abertura de cada comentário executável com versão ou sem ela (<c>/*!</c>, <c>/*!50000</c>,
-    /// <c>/*M!100000</c>), em maiúsculas: cada uma é uma condição que o servidor avalia sozinha.
+    /// Se não for null, recebe a abertura exata de cada comentário executável com versão ou sem ela (<c>/*!</c>,
+    /// <c>/*!50000</c>, <c>/*M!100000</c>; <c>/*m!</c> é outra, porque o MariaDB só aceita o M maiúsculo).
     /// </param>
     public static ScanResult Scan(string text, bool backslashEscapes = true, bool executableComments = true, ICollection<string>? gates = null)
     {
@@ -47,7 +48,9 @@ internal static class MySqlScanner
         var broken = false;
         var stmtBroken = false;
         var brokenFrom = -1;      // início de um trecho quebrado que ainda não tem token (ex.: "/* DROP ..." sozinho)
-        var inExecutable = false; // dentro de /*! ... */, /*M! ... */ ou /*+ ... */
+        var inExecutable = false; // dentro de /*! ... */ ou /*M! ... */
+        var executableOpenedInStatement = false; // o comentário executável aberto começou depois do 1º token do statement
+        var closedEnd = -1;       // fim do "*/" de um comentário executável fechado depois do último token (ver Flush)
         var i = 0;
 
         void Flush()
@@ -57,7 +60,9 @@ internal static class MySqlScanner
                 var st = current.Count > 0 ? current[0].Start : brokenFrom;
                 if (brokenFrom >= 0) st = Math.Min(st, brokenFrom);
                 // Quebrado: o trecho vai até o fim do texto (o resto é string/comentário aberto).
-                var end = stmtBroken ? text.Length : current[^1].End;
+                // Um statement que termina dentro de um comentário executável aberto nele mesmo leva o "*/" junto
+                // (senão o servidor recebe o comentário sem fechar).
+                var end = stmtBroken ? text.Length : Math.Max(current[^1].End, closedEnd);
                 var isBroken = stmtBroken || !ParensBalanced(current) || (current.Count > 0 && current[0].Is("DELIMITER"));
                 broken |= isBroken;
                 statements.Add(new MySqlStatement(st, end, [.. current], isBroken));
@@ -65,6 +70,7 @@ internal static class MySqlScanner
             current = [];
             stmtBroken = false;
             brokenFrom = -1;
+            closedEnd = -1;
         }
 
         void MarkBroken(int at)
@@ -92,6 +98,7 @@ internal static class MySqlScanner
             {
                 inExecutable = false;
                 i += 2;
+                if (executableOpenedInStatement && current.Count > 0) closedEnd = i;
                 continue;
             }
 
@@ -101,15 +108,17 @@ internal static class MySqlScanner
             { i = SkipLine(text, i); continue; }
             if (c == '/' && i + 1 < text.Length && text[i + 1] == '*')
             {
-                // /*! ... */, /*M! ... */ (MariaDB) e /*+ ... */ são código: pula só a abertura (e a versão) e segue tokenizando.
+                // /*! ... */ e /*M! ... */ (MariaDB) são código: pula só a abertura (e a versão) e segue tokenizando.
+                // /*+ ... */ (dica de otimizador) é comentário comum.
                 var open = executableComments ? ExecutableOpenerLength(text, i) : 0;
                 if (open > 0 && !inExecutable)
                 {
                     inExecutable = true;
+                    executableOpenedInStatement = current.Count > 0;
                     var opener = i;
                     i += open;
                     while (i < text.Length && char.IsAsciiDigit(text[i])) i++;
-                    if (gates is not null && text[opener + 2] != '+') gates.Add(text[opener..i].ToUpperInvariant());
+                    gates?.Add(text[opener..i]);
                     continue;
                 }
                 var close = text.IndexOf("*/", i + 2, StringComparison.Ordinal);
@@ -171,7 +180,7 @@ internal static class MySqlScanner
     private static int ExecutableOpenerLength(string t, int i)
     {
         if (i + 2 >= t.Length) return 0;
-        if (t[i + 2] == '!' || t[i + 2] == '+') return 3;
+        if (t[i + 2] == '!') return 3;
         if ((t[i + 2] == 'M' || t[i + 2] == 'm') && i + 3 < t.Length && t[i + 3] == '!') return 4;
         return 0;
     }

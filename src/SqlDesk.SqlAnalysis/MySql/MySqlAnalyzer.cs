@@ -51,15 +51,19 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
             // servir de cobertura para um DROP que só existe na leitura do servidor (ex.: depois de um /*!99999 ' */).
             var alternates = AlternateScans(text).Select(alt => AlternateReading.Of(alt, text, st.Start)).ToList();
             string? why = null;
-            if (alternates.Any(alt => ReadingsDisagree(alt, found)))
-                why = "Dependendo do servidor (NO_BACKSLASH_ESCAPES, ou comentário /*! /*M! /*+ que ele ignora), este trecho é lido de " +
+            // Comando que grava ou muda a estrutura com comentário executável no próprio texto: o servidor executa cada
+            // comentário (ou não) pela versão dele, com regras de dígitos que mudam entre MySQL e MariaDB, e qualquer mistura
+            // pode virar outro comando (ex.: "WHERE id=1 /*!50000 OR 1 */ /*!99999 =id */" roda "id=1 OR 1" no MySQL 8).
+            // Não dá para modelar todas: sempre irreversível. Statement que só existe dentro de um comentário
+            // (/*!40101 SET ... */; do mysqldump) não tem abertura no próprio texto e fica como antes.
+            if (HasOwnExecutableComment(script, scan, k) && (alternates.Any(alt => alt.Writes) || WritesInSomeReading(script, scan, k)))
+                why = "Comando que grava ou muda a estrutura com comentário executável (/*! ou /*M!): o MySQL/MariaDB executa ou " +
+                      "ignora esse trecho conforme a versão do servidor, e não dá para saber o que vai rodar; tratado como perigoso " +
+                      "por segurança";
+            else if (alternates.Any(alt => ReadingsDisagree(alt, found)))
+                why = "Dependendo do servidor (NO_BACKSLASH_ESCAPES, ou comentário /*! /*M! que ele ignora), este trecho é lido de " +
                       "outro jeito (as aspas fecham em outro lugar ou o comando destrutivo atinge outro objeto ou outras linhas); " +
                       "tratado como perigoso por segurança";
-            else if ((found.Count > 0 || alternates.Any(alt => alt.Dangers.Count > 0)) && GatesAround(script, scan, k) >= 2)
-                // Cada servidor executa só parte deles (o MySQL 8 roda /*!50000 e ignora /*!99999; o MariaDB 11 roda /*!99999 e
-                // ignora /*M!999999): as duas leituras modeladas (todos executados, nenhum executado) não cobrem as misturas.
-                why = "Comentários executáveis com versões diferentes (/*!, /*!NNNNN, /*M!NNNNNN): cada servidor executa só parte " +
-                      "deles, e o comando destrutivo pode atingir outro objeto; tratado como perigoso por segurança";
             if (why is not null)
                 found.Add(new DangerousStatement(DangerKind.Unanalyzable, st.Start, Math.Max(1, st.End - st.Start), map.LineOf(st.Start),
                     why, null, [], CanPreviewWithOutput: false));
@@ -72,7 +76,8 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
     /// Uma releitura do trecho, em posições do script: os intervalos dos statements bem formados e os perigos deles.
     /// Statements quebrados na releitura são ignorados (o servidor os recusaria com erro de sintaxe).
     /// </summary>
-    private sealed record AlternateReading(IReadOnlyList<(int Start, int End)> Statements, IReadOnlyList<DangerousStatement> Dangers)
+    /// <param name="Writes">Algum statement da releitura (mesmo quebrado) começa com um comando que grava ou muda a estrutura.</param>
+    private sealed record AlternateReading(IReadOnlyList<(int Start, int End)> Statements, IReadOnlyList<DangerousStatement> Dangers, bool Writes)
     {
         public static AlternateReading Of(ScanResult alt, string text, int offset)
         {
@@ -84,9 +89,22 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
                 ranges.Add((offset + s.Start, offset + s.End));
                 dangers.AddRange(ClassifyChunk(s, text, map).Select(d => d with { Start = offset + d.Start }));
             }
-            return new AlternateReading(ranges, dangers);
+            return new AlternateReading(ranges, dangers, alt.Statements.Any(StartsWithWrite));
         }
     }
+
+    /// <summary>Primeira palavra (do comando que de fato executa, ver <see cref="Core"/>) dos comandos que gravam ou mudam a estrutura.</summary>
+    private static readonly HashSet<string> WriteWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "INSERT", "UPDATE", "DELETE", "REPLACE", "TRUNCATE", "DROP", "ALTER", "CREATE", "RENAME", "PREPARE", "EXECUTE",
+    };
+
+    /// <summary>
+    /// Algum pedaço do statement grava ou muda a estrutura: começa com uma de <see cref="WriteWords"/>, direto ou depois de
+    /// WITH, EXPLAIN/ANALYZE ou SET STATEMENT ... FOR. SET STATEMENT aninhado demais (opaco) conta.
+    /// </summary>
+    private static bool StartsWithWrite(MySqlStatement st) =>
+        Pieces(st).Any(p => Core(p) is not { } c || (c.Count > 0 && c[0].Kind == TokenKind.Word && WriteWords.Contains(c[0].Text)));
 
     /// <summary>Mesmo tipo, posição, alvo e contagem prévia (um comentário executável pode trocar a tabela).</summary>
     private static bool SameDanger(DangerousStatement a, DangerousStatement b) =>
@@ -117,29 +135,57 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
     }
 
     /// <summary>
-    /// Quantas condições de versão diferentes (<c>/*!</c>, <c>/*!50000</c>, <c>/*M!999999</c>...) há em volta do statement
-    /// <paramref name="k"/>: do fim do anterior (a abertura de um comentário executável fica antes do primeiro token) até o
-    /// terminador dele (sem pegar a abertura do statement seguinte, como nos scripts do mysqldump). Conta nas duas leituras
-    /// das barras invertidas, para uma string não esconder uma abertura.
+    /// Fim do texto próprio do statement <paramref name="k"/>: o terminador dele (incluído), ou o começo do seguinte. Não
+    /// pega a abertura do statement seguinte (os <c>/*!40101 SET ... */;</c> do mysqldump).
     /// </summary>
-    private static int GatesAround(string script, ScanResult scan, int k)
+    private static int OwnEnd(string script, ScanResult scan, int k)
     {
         var statements = scan.Statements;
-        var from = k > 0 ? statements[k - 1].End : 0;
         var to = k + 1 < statements.Count ? statements[k + 1].Start : script.Length;
-        if (script.IndexOf("/*!", from, Math.Max(0, to - from), StringComparison.Ordinal) < 0 &&
-            script.IndexOf("/*M!", from, Math.Max(0, to - from), StringComparison.OrdinalIgnoreCase) < 0) return 0;
         // Primeiro token depois do fim do statement (busca binária: os tokens estão em ordem); se for o terminador dele, corta ali.
         var tokens = scan.Tokens;
         int lo = 0, hi = tokens.Count;
         while (lo < hi) { var mid = (lo + hi) / 2; if (tokens[mid].Start < statements[k].End) lo = mid + 1; else hi = mid; }
         if (lo < tokens.Count && tokens[lo].Kind == TokenKind.Terminator && tokens[lo].End < to) to = tokens[lo].End;
-        var region = script[from..Math.Max(from, to)];
-        var gates = new HashSet<string>(StringComparer.Ordinal);
-        MySqlScanner.Scan(region, gates: gates);
-        MySqlScanner.Scan(region, backslashEscapes: false, gates: gates);
-        return gates.Count;
+        return Math.Max(statements[k].Start, to);
     }
+
+    private static bool ContainsExecutableOpener(string script, int from, int to) =>
+        to > from && (script.IndexOf("/*!", from, to - from, StringComparison.Ordinal) >= 0 ||
+                      script.IndexOf("/*M!", from, to - from, StringComparison.OrdinalIgnoreCase) >= 0);
+
+    /// <summary>
+    /// Há uma abertura <c>/*!</c>, <c>/*M!</c> ou <c>/*m!</c> no texto próprio do statement: do primeiro token até o
+    /// terminador dele. Busca no texto cru (também dentro de strings), para nenhuma leitura das aspas esconder uma abertura.
+    /// </summary>
+    private static bool HasOwnExecutableComment(string script, ScanResult scan, int k) =>
+        ContainsExecutableOpener(script, scan.Statements[k].Start, OwnEnd(script, scan, k));
+
+    /// <summary>Texto do statement com o que vem antes dele (a abertura de um comentário executável fica antes do 1º token).</summary>
+    private static string RegionOf(string script, ScanResult scan, int k)
+    {
+        var from = k > 0 ? scan.Statements[k - 1].End : 0;
+        return script[from..OwnEnd(script, scan, k)];
+    }
+
+    private static readonly Regex ExecutableOpener = new(@"/\*(?:!|[Mm]!)[0-9]*", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Quantas condições de versão diferentes (abertura exata: <c>/*!</c>, <c>/*!50000</c>, <c>/*M!999999</c>, <c>/*m!</c>...)
+    /// há em volta do statement <paramref name="k"/>, do fim do anterior até o terminador dele. Conta no texto cru (também
+    /// dentro de strings): numa mistura de comentários executados e ignorados, uma abertura que as leituras modeladas veem
+    /// dentro de uma string pode virar código.
+    /// </summary>
+    private static int GatesAround(string script, ScanResult scan, int k) =>
+        ExecutableOpener.Matches(RegionOf(script, scan, k)).Select(m => m.Value).Distinct(StringComparer.Ordinal).Count();
+
+    /// <summary>
+    /// O statement grava ou muda a estrutura em alguma leitura: a principal ou as releituras do trecho junto com o que vem
+    /// antes dele (com <c>/*!99999 SELECT 1, */ DELETE ...</c>, o servidor que ignora o comentário roda o DELETE).
+    /// </summary>
+    private static bool WritesInSomeReading(string script, ScanResult scan, int k) =>
+        StartsWithWrite(scan.Statements[k]) ||
+        AlternateScans(RegionOf(script, scan, k)).Any(alt => alt.Statements.Any(StartsWithWrite));
 
     public LocateResult Locate(string text, int cursor)
     {
@@ -232,21 +278,30 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
         if (scan.Broken) { reason = "o texto não pôde ser analisado (string, crase, comentário ou parênteses sem fechar)"; return false; }
         if (!ReadOnlyStatements(scan, out reason)) return false;
         // Cada batch também precisa ser só leitura nas outras leituras possíveis do servidor (aspas que fecham em outro lugar).
-        foreach (var st in scan.Statements)
+        for (var k = 0; k < scan.Statements.Count; k++)
+        {
+            var st = scan.Statements[k];
             foreach (var alt in AlternateScans(script[st.Start..st.End]))
                 if (!ReadOnlyStatements(alt, out reason)) return false;
+            // Com duas ou mais condições de versão, o servidor pode executar só parte dos comentários, e essa mistura não é
+            // nenhuma das leituras acima (ex.: SELECT 1 /*!99999 , ' */ /*!50000 ; DELETE ... */ no MySQL 8).
+            if (GatesAround(script, scan, k) >= 2)
+            {
+                reason = "contém comentários executáveis com versões diferentes (o servidor pode executar só parte deles)";
+                return false;
+            }
+        }
         return true;
     }
 
     /// <summary>
     /// Releituras do trecho do jeito que o servidor pode ler: sem escape por barra (NO_BACKSLASH_ESCAPES) e/ou com
-    /// <c>/*!</c>, <c>/*M!</c> e <c>/*+</c> como comentário comum. Só as que podem mudar algo são feitas.
+    /// <c>/*!</c> e <c>/*M!</c> como comentário comum (<c>/*+</c> já é comentário comum em todas). Só as que podem mudar algo são feitas.
     /// </summary>
     private static IEnumerable<ScanResult> AlternateScans(string text)
     {
         var backslash = text.Contains('\\');
-        var executable = text.Contains("/*!", StringComparison.Ordinal) || text.Contains("/*+", StringComparison.Ordinal) ||
-                         text.Contains("/*M!", StringComparison.OrdinalIgnoreCase);
+        var executable = text.Contains("/*!", StringComparison.Ordinal) || text.Contains("/*M!", StringComparison.OrdinalIgnoreCase);
         if (backslash) yield return MySqlScanner.Scan(text, backslashEscapes: false);
         if (executable) yield return MySqlScanner.Scan(text, executableComments: false);
         if (backslash && executable) yield return MySqlScanner.Scan(text, backslashEscapes: false, executableComments: false);

@@ -420,6 +420,60 @@ public class GuardTests
         }
     }
 
+    /// <summary>
+    /// Ruling I: comando que grava com comentário executável. {gate} = comentário que o servidor ignora pela versão
+    /// (/*!99999 no MySQL 8; /*M!999999 no MariaDB 11). {m1} = nome de {m} sem o "1" do começo (forma dos dígitos de versão).
+    /// Valor: SQL e quantas linhas de {m} sobram com v = 0, quando os dois servidores concordam (null = depende do servidor).
+    /// </summary>
+    private static readonly Dictionary<string, (string Sql, long? MRowsLeft)> ExecutableCommentShapes = new()
+    {
+        ["delete_or1"] = ("DELETE FROM {m} WHERE id=1 /*!50000 OR 1 */ {gate} =id */ LIMIT 5", 0),
+        ["update_or1"] = ("UPDATE {m} SET v=9 WHERE id=1 /*!50000 OR 1 */ {gate} =id */ LIMIT 5", 0),
+        ["select_then_delete_or1"] = ("SELECT 1; DELETE FROM {m} WHERE id=1 /*!50000 OR 1 */ {gate} =id */ LIMIT 5", 0),
+        ["hint"] = ("DELETE FROM /*+ {i} */ /*!50000 {m} */ {i}", 0),
+        ["lowercase_m"] = ("DELETE FROM /*m!100000 {i} */ /*M!100000 {m} */ {i}", null),
+        ["version_digits"] = ("DELETE FROM /*!50000{m} */ {i}", null),
+    };
+
+    public static IEnumerable<object[]> ExecutableCommentPerServer() =>
+        TestServers.All.SelectMany(s => ExecutableCommentShapes.Keys.Select(k => new object[] { s[0], k }));
+
+    [IntegrationTheory, MemberData(nameof(ExecutableCommentPerServer))]
+    public async Task Comando_que_grava_com_comentario_executavel_e_irreversivel_na_primeira_confirmacao(string server, string shape)
+    {
+        await using var h = await Harness.OpenAsync(server);
+        var i = Table("gei", server);
+        var m = "1" + i; // nome que começa com dígito: "/*!50000" + m é lido pelo MySQL 8.4 como versão 50000 e tabela m
+        try
+        {
+            await h.RunAsync($"CREATE TABLE {i} (id INT PRIMARY KEY, v INT) ENGINE=InnoDB; INSERT INTO {i} VALUES (1,0),(2,0);" +
+                             $"CREATE TABLE {m} (id INT PRIMARY KEY, v INT) ENGINE=MyISAM; INSERT INTO {m} VALUES (1,0),(2,0);");
+            var (template, left) = ExecutableCommentShapes[shape];
+            var sql = template.Replace("{gate}", server == "mariadb" ? "/*M!999999" : "/*!99999").Replace("{i}", i).Replace("{m}", m);
+
+            // Primeira confirmação: "não pode ser desfeito", e nada foi gravado ainda.
+            Assert.True(await h.Guard.IsIrreversibleAsync(h.TabId, DangerPlan(h, sql), default));
+            Assert.Equal(2L, await h.ScalarAsync($"SELECT COUNT(*) FROM {m} WHERE v = 0"));
+            Assert.Equal(2L, await h.ScalarAsync($"SELECT COUNT(*) FROM {i} WHERE v = 0"));
+
+            var outcome = await h.RunGuardedAsync(sql);
+
+            Assert.Equal(GuardStatus.Completed, outcome.Status);
+            Assert.Null(outcome.Pending);
+            Assert.False(h.Guard.HasPending(h.TabId));
+            Assert.DoesNotContain(h.LastSink.Messages, x => x.Text.Contains("nada é gravado"));
+            var mLeft = await h.ScalarAsync($"SELECT COUNT(*) FROM {m} WHERE v = 0");
+            var iLeft = await h.ScalarAsync($"SELECT COUNT(*) FROM {i} WHERE v = 0");
+            // O servidor gravou a tabela inteira (uma das duas), como o aviso forte disse que podia.
+            Assert.Equal(2L, mLeft + iLeft);
+            if (left is { } expected) Assert.Equal(expected, mLeft);
+        }
+        finally
+        {
+            await h.RunAsync($"DROP TABLE IF EXISTS {i}; DROP TABLE IF EXISTS {m}");
+        }
+    }
+
     [IntegrationTheory, MemberData(nameof(TestServers.All), MemberType = typeof(TestServers))]
     public async Task View_como_alvo_e_irreversivel(string server)
     {
