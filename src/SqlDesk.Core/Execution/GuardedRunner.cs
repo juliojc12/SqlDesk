@@ -66,8 +66,8 @@ public sealed class GuardedRunner(ISessionDb db, IBatchRunner runner, TimeSpan? 
         var targets = plan.Dangers.Where(d => !DangerKinds.IsDdl(d.Kind) && d.Kind != DangerKind.Unanalyzable).Select(d => d.Target).ToList();
         if (targets.Count == 0) return null;
         if (targets.Any(t => t is null))
-            return "Este trecho não pode ser desfeito com segurança: não deu para reconhecer a tabela de um dos comandos e conferir " +
-                   "se ela guarda as alterações numa transação.";
+            return "Este trecho não pode ser desfeito com segurança: não deu para reconhecer a tabela de um dos comandos (ou ele " +
+                   "altera mais de uma tabela) e conferir se ela guarda as alterações numa transação.";
         IReadOnlyList<string>? nonTransactional;
         try
         {

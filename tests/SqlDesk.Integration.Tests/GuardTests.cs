@@ -303,6 +303,49 @@ public class GuardTests
         }
     }
 
+    /// <summary>
+    /// UPDATE/DELETE com mais de uma tabela: {i} = InnoDB, {m} = MyISAM, cada uma com as linhas 1 e 2 (v = 0). A escrita
+    /// cai em {m}, que o ROLLBACK não desfaz.
+    /// </summary>
+    public static IEnumerable<object[]> MultiTablePerServer() =>
+        TestServers.All.SelectMany(s => new[]
+        {
+            "DELETE {m} FROM {i} JOIN {m} ON {i}.id = {m}.id",
+            "UPDATE {i}, {m} SET {m}.v = 7",
+            "UPDATE {i} JOIN {m} ON {i}.id = {m}.id SET {m}.v = 7",
+        }.Select(sql => new object[] { s[0], sql }));
+
+    [IntegrationTheory, MemberData(nameof(MultiTablePerServer))]
+    public async Task UPDATE_DELETE_multi_tabela_com_MyISAM_e_irreversivel_e_roda_direto(string server, string template)
+    {
+        await using var h = await Harness.OpenAsync(server);
+        var (i, m) = (Table("gmi", server), Table("gmm", server));
+        try
+        {
+            await h.RunAsync($"CREATE TABLE {i} (id INT PRIMARY KEY, v INT) ENGINE=InnoDB; INSERT INTO {i} VALUES (1,0),(2,0);" +
+                             $"CREATE TABLE {m} (id INT PRIMARY KEY, v INT) ENGINE=MyISAM; INSERT INTO {m} VALUES (1,0),(2,0);");
+            var sql = template.Replace("{i}", i).Replace("{m}", m);
+
+            // Primeira confirmação (mesma decisão do ExecuteHandler): "não pode ser desfeito"; o InnoDB sozinho continua reversível.
+            Assert.True(await h.Guard.IsIrreversibleAsync(h.TabId, DangerPlan(h, sql), default));
+            Assert.False(await h.Guard.IsIrreversibleAsync(h.TabId, DangerPlan(h, $"DELETE FROM {i}"), default));
+
+            var outcome = await h.RunGuardedAsync(sql);
+
+            Assert.Equal(GuardStatus.Completed, outcome.Status);
+            Assert.Null(outcome.Pending);
+            Assert.False(h.Guard.HasPending(h.TabId));
+            Assert.Contains(h.LastSink.Messages, x => x.Text.Contains("sem segunda confirmação"));
+            Assert.Equal(0, await h.Db.TranCountAsync(h.TabId, default));
+            Assert.Equal(0L, await h.ScalarAsync($"SELECT COUNT(*) FROM {m} WHERE v = 0")); // gravado em MyISAM, como avisado
+            Assert.Equal(2L, await h.ScalarAsync($"SELECT COUNT(*) FROM {i}"));
+        }
+        finally
+        {
+            await h.RunAsync($"DROP TABLE IF EXISTS {i}; DROP TABLE IF EXISTS {m}");
+        }
+    }
+
     [IntegrationTheory, MemberData(nameof(TestServers.All), MemberType = typeof(TestServers))]
     public async Task View_como_alvo_e_irreversivel(string server)
     {

@@ -394,12 +394,17 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
         if (first.Is("UPDATE") || first.Is("DELETE"))
         {
             var isUpdate = first.Is("UPDATE");
-            var target = TargetOf(t, isUpdate);
+            var target = TargetOf(t, isUpdate, out var multi);
             var whereAt = TopLevelIndex(t, "WHERE");
             var reason = whereAt < 0 ? "sem WHERE" : FiltersNothing(t, whereAt + 1) ? "com WHERE que não filtra nenhuma linha (não referencia colunas ou é sempre verdadeiro)" : null;
             if (reason is null) return null;
+            var kind = isUpdate ? DangerKind.UpdateWithoutWhere : DangerKind.DeleteWithoutWhere;
+            if (multi)
+                return D(kind, null, isUpdate
+                    ? $"UPDATE com mais de uma tabela {reason} vai afetar todas as linhas das tabelas alteradas"
+                    : $"DELETE com mais de uma tabela {reason} vai apagar todas as linhas das tabelas indicadas");
             var shown = target ?? "a tabela";
-            return D(isUpdate ? DangerKind.UpdateWithoutWhere : DangerKind.DeleteWithoutWhere, target,
+            return D(kind, target,
                 isUpdate ? $"UPDATE em {shown} {reason} vai afetar a tabela inteira" : $"DELETE em {shown} {reason} vai apagar todas as linhas da tabela",
                 target is null ? [] : [$"SELECT COUNT(*) FROM {target}"]);
         }
@@ -624,17 +629,69 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
         return true;
     }
 
-    /// <summary>Alvo de UPDATE (palavra logo após UPDATE, pulando LOW_PRIORITY/IGNORE) ou DELETE (após FROM).</summary>
-    private static string? TargetOf(IReadOnlyList<Token> t, bool isUpdate)
+    /// <summary>Palavras que, na lista de tabelas, juntam uma segunda tabela.</summary>
+    private static readonly string[] JoinWords = ["JOIN", "STRAIGHT_JOIN", "INNER", "LEFT", "RIGHT", "CROSS", "NATURAL", "OUTER"];
+
+    /// <summary>
+    /// Alvo de UPDATE (palavra logo após UPDATE, pulando LOW_PRIORITY/IGNORE) ou DELETE (após FROM, pulando
+    /// LOW_PRIORITY/QUICK/IGNORE). Com mais de uma tabela (<c>UPDATE a, b</c>, <c>UPDATE a JOIN b</c>,
+    /// <c>DELETE x FROM a JOIN x</c>, <c>DELETE FROM x USING ...</c>, <c>DELETE FROM a, b</c>) não há um alvo só: devolve
+    /// null com <paramref name="multi"/> verdadeiro (sem contagem e, no MySQL/MariaDB, irreversível por alvo não reconhecido,
+    /// porque qualquer uma das tabelas pode não ser transacional).
+    /// </summary>
+    private static string? TargetOf(IReadOnlyList<Token> t, bool isUpdate, out bool multi)
     {
+        multi = false;
         var i = 1;
         if (isUpdate)
         {
             while (i < t.Count && (t[i].Is("LOW_PRIORITY") || t[i].Is("IGNORE"))) i++;
+            var setAt = TopLevelIndex(t, "SET");
+            if (JoinsTables(t, i, setAt < 0 ? t.Count : setAt)) { multi = true; return null; }
             return NameAfter(t, i);
         }
-        var from = t.ToList().FindIndex(x => x.Is("FROM"));
-        return from < 0 ? null : NameAfter(t, from + 1);
+        // HISTORY: DELETE HISTORY FROM t (MariaDB, tabelas versionadas) apaga só da própria tabela.
+        while (i < t.Count && (t[i].Is("LOW_PRIORITY") || t[i].Is("QUICK") || t[i].Is("IGNORE") || t[i].Is("HISTORY"))) i++;
+        var from = TopLevelIndex(t, "FROM");
+        if (from < 0) return null;
+        // Algo entre o DELETE e o FROM é a lista de tabelas do DELETE multi-tabela (DELETE t1, t2 FROM ...).
+        if (from != i) { multi = true; return null; }
+        var end = t.Count;
+        var depth = 0;
+        for (var k = from + 1; k < t.Count; k++)
+        {
+            if (t[k].IsSymbol("(")) depth++;
+            else if (t[k].IsSymbol(")")) depth--;
+            else if (depth == 0 && (t[k].Is("WHERE") || t[k].Is("ORDER") || t[k].Is("LIMIT") || t[k].Is("RETURNING"))) { end = k; break; }
+        }
+        if (JoinsTables(t, from + 1, end) || IndexAtTopLevel(t, from + 1, end, "USING") >= 0) { multi = true; return null; }
+        return NameAfter(t, from + 1);
+    }
+
+    /// <summary>Entre <paramref name="from"/> e <paramref name="end"/> (lista de tabelas), há <c>,</c> ou JOIN no nível 0, ou ela começa com parêntese.</summary>
+    private static bool JoinsTables(IReadOnlyList<Token> t, int from, int end)
+    {
+        if (from < end && t[from].IsSymbol("(")) return true;
+        var depth = 0;
+        for (var k = from; k < end; k++)
+        {
+            if (t[k].IsSymbol("(")) depth++;
+            else if (t[k].IsSymbol(")")) depth--;
+            else if (depth == 0 && (t[k].IsSymbol(",") || JoinWords.Any(t[k].Is))) return true;
+        }
+        return false;
+    }
+
+    private static int IndexAtTopLevel(IReadOnlyList<Token> t, int from, int end, string word)
+    {
+        var depth = 0;
+        for (var k = from; k < end; k++)
+        {
+            if (t[k].IsSymbol("(")) depth++;
+            else if (t[k].IsSymbol(")")) depth--;
+            else if (depth == 0 && t[k].Is(word)) return k;
+        }
+        return -1;
     }
 
     /// <summary>Nome possivelmente qualificado (<c>db.tabela</c>, com crases) a partir de <paramref name="index"/>.</summary>

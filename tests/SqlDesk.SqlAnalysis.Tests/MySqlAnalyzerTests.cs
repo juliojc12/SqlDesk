@@ -468,6 +468,64 @@ public class MySqlAnalyzerTests
         Assert.Equal([$"SELECT COUNT(*) FROM {target}"], d.CountQueries);
     }
 
+    // ---- Acompanhamento: UPDATE/DELETE com mais de uma tabela não têm um alvo só (N1) ----
+
+    [Theory]
+    [InlineData("DELETE m FROM i JOIN m ON i.id = m.id", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE m, i FROM i JOIN m ON i.id = m.id WHERE 1=1", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE m.* FROM i, m", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE LOW_PRIORITY QUICK IGNORE m FROM i JOIN m", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE FROM m USING i JOIN m ON i.id = m.id", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE FROM i, m USING i JOIN m ON i.id = m.id", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE FROM i, m", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE FROM i JOIN m ON i.id = m.id", DangerKind.DeleteWithoutWhere)]
+    [InlineData("UPDATE i, m SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE i JOIN m ON i.id = m.id SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE i INNER JOIN m ON i.id = m.id SET m.v = 7 WHERE 1=1", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE i LEFT JOIN m USING (id) SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE i LEFT OUTER JOIN m ON i.id = m.id SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE i RIGHT JOIN m ON i.id = m.id SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE i CROSS JOIN m SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE i NATURAL JOIN m SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE i STRAIGHT_JOIN m ON i.id = m.id SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE LOW_PRIORITY IGNORE i AS a, m AS b SET b.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE (SELECT id FROM i) s JOIN m ON s.id = m.id SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("UPDATE (i JOIN m ON i.id = m.id) SET m.v = 7", DangerKind.UpdateWithoutWhere)]
+    [InlineData("WITH c AS (SELECT 1 AS id) UPDATE i JOIN c ON i.id = c.id SET i.v = 1", DangerKind.UpdateWithoutWhere)]
+    public void UPDATE_DELETE_com_mais_de_uma_tabela_ficam_sem_alvo(string sql, DangerKind kind)
+    {
+        var d = A.Analyze(sql).Dangers.Single();
+        Assert.Equal(kind, d.Kind);
+        Assert.Null(d.Target); // sem alvo único: sem contagem e irreversível ("alvo não reconhecido")
+        Assert.Empty(d.CountQueries);
+        Assert.Contains("mais de uma tabela", d.Description);
+    }
+
+    [Theory]
+    [InlineData("DELETE FROM t", "t")]
+    [InlineData("DELETE FROM db.t", "db.t")]
+    [InlineData("DELETE LOW_PRIORITY FROM t", "t")]
+    [InlineData("DELETE LOW_PRIORITY QUICK IGNORE FROM t", "t")]
+    [InlineData("DELETE FROM t PARTITION (p0, p1)", "t")]
+    [InlineData("DELETE FROM t AS x WHERE 1=1", "t")]
+    [InlineData("DELETE FROM t ORDER BY a, b LIMIT 1", "t")]
+    [InlineData("DELETE FROM t RETURNING a, b", "t")]
+    [InlineData("DELETE FROM t WHERE 1=1 OR id IN (SELECT id FROM x JOIN y ON x.a = y.a)", "t")]
+    [InlineData("UPDATE t SET a = 1", "t")]
+    [InlineData("UPDATE LOW_PRIORITY IGNORE t SET a = 1", "t")]
+    [InlineData("UPDATE t SET a = (SELECT 1 FROM x JOIN y ON x.id = y.id) WHERE 1=1", "t")]
+    [InlineData("UPDATE t SET a = CONCAT(b, c)", "t")]
+    [InlineData("UPDATE t SET a = 1, b = 2", "t")]
+    [InlineData("UPDATE t PARTITION (p0, p1) SET a = 1", "t")]
+    [InlineData("UPDATE t SET a = 1 WHERE 1=1 OR id IN (SELECT id FROM x, y)", "t")]
+    public void UPDATE_DELETE_de_uma_tabela_continuam_com_o_alvo(string sql, string target)
+    {
+        var d = A.Analyze(sql).Dangers.Single();
+        Assert.Equal(target, d.Target);
+        Assert.Equal([$"SELECT COUNT(*) FROM {target}"], d.CountQueries);
+        Assert.DoesNotContain("mais de uma tabela", d.Description);
+    }
+
     [Fact]
     public void Analisador_do_SQL_Server_nunca_acusa_commit_implicito() =>
         Assert.False(((ISqlAnalyzer)SqlServerAnalyzer.Instance).CausesImplicitCommit("CREATE TABLE x (id INT); COMMIT"));
