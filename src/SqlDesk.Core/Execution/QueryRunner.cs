@@ -128,14 +128,16 @@ public sealed class QueryRunner(TabSessionManager sessions) : IBatchRunner
             }
 
             // O MySQL atende o KILL QUERY sem erro quando o comando é interrompível (SELECT SLEEP devolve 1), e o pedido
-            // pode chegar quando o último comando já acabou: o leitor termina "com sucesso". O pedido do usuário foi
-            // cancelar, então o resultado não vale como completo, mas os comandos rodaram até o fim (e o que gravaram
-            // ficou): a mensagem não pode dizer que nada aconteceu, senão convida a rodar de novo (ex.: x = x + 1).
+            // também pode chegar quando o último comando já acabou: nos dois casos o leitor termina "com sucesso" e não dá
+            // para distinguir um do outro. O pedido do usuário foi cancelar, então o resultado não vale como completo, mas
+            // o que foi gravado pode ter ficado: a mensagem não pode dizer que nada aconteceu (convidaria a rodar de novo,
+            // ex.: x = x + 1) nem afirmar que o comando terminou.
             if (status == RunStatus.Completed && cts.IsCancellationRequested)
             {
                 status = RunStatus.Cancelled;
                 sink.Message(MessageKinds.Error,
-                    "Cancelamento pedido, mas o comando já tinha terminado: confira os dados (as alterações podem ter sido gravadas).", null);
+                    "Cancelamento pedido, mas o servidor devolveu o resultado sem erro: o comando pode ter sido interrompido ou já ter " +
+                    "terminado. Confira os dados (as alterações podem ter sido gravadas).", null);
             }
         }
         finally

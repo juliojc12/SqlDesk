@@ -30,10 +30,11 @@ public class ExecutionTests
 
         Assert.Equal(RunStatus.Cancelled, summary.Status);
         // O servidor interrompe com erro (cancelado de verdade) ou atende o KILL QUERY sem erro (SLEEP devolve 1): nesse
-        // caso o comando terminou, e a mensagem diz isso em vez de afirmar que nada aconteceu.
+        // caso não dá para saber se o comando foi interrompido ou terminou, e a mensagem diz isso em vez de afirmar que nada
+        // aconteceu.
         var cancelMessages = rows.Messages.Where(m => m.Kind == MessageKinds.Error &&
             (m.Text == "Execução cancelada pelo usuário." ||
-             m.Text == "Cancelamento pedido, mas o comando já tinha terminado: confira os dados (as alterações podem ter sido gravadas).")).ToList();
+             m.Text == "Cancelamento pedido, mas o servidor devolveu o resultado sem erro: o comando pode ter sido interrompido ou já ter terminado. Confira os dados (as alterações podem ter sido gravadas).")).ToList();
         Assert.Single(cancelMessages);
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"o cancelamento demorou {watch.Elapsed}");
 

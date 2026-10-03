@@ -148,7 +148,7 @@ public class QueryRunnerCancelTests
 
     private const string GenuineCancel = "Execução cancelada pelo usuário.";
     private const string CancelAfterFinish =
-        "Cancelamento pedido, mas o comando já tinha terminado: confira os dados (as alterações podem ter sido gravadas).";
+        "Cancelamento pedido, mas o servidor devolveu o resultado sem erro: o comando pode ter sido interrompido ou já ter terminado. Confira os dados (as alterações podem ter sido gravadas).";
 
     private static int CancelMessages(Sink s) =>
         s.Messages.Count(m => m.Kind == MessageKinds.Error && (m.Text.Contains("cancelada") || m.Text.Contains("Cancelamento")));
