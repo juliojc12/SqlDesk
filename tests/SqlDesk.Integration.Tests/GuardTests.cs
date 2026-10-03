@@ -376,6 +376,50 @@ public class GuardTests
         }
     }
 
+    /// <summary>
+    /// Comentários executáveis que o servidor roda só em parte. {gate} é o comentário que ele ignora pela versão
+    /// (/*!99999 no MySQL 8; /*M!999999 no MariaDB 11, que executa /*!99999). Valor: SQL e quantas linhas de {m} ficam com v = 0.
+    /// </summary>
+    private static readonly Dictionary<string, (string Sql, long MRowsLeft)> PartialGateShapes = new()
+    {
+        ["delete_mixed"] = ("DELETE FROM {gate} {i} */ /*!50000 {m} */ {i}", 0),
+        ["update_mixed"] = ("UPDATE {gate} {i} */ /*!50000 {m} */ {i} SET v = 5", 0),
+        ["delete_reverse"] = ("DELETE FROM {gate} {i} WHERE 1=1 OR id IN (SELECT 1 FROM */ {m} WHERE id=1 {gate} ) */ LIMIT 5", 1),
+    };
+
+    public static IEnumerable<object[]> PartialGatePerServer() =>
+        TestServers.All.SelectMany(s => PartialGateShapes.Keys.Select(k => new object[] { s[0], k }));
+
+    [IntegrationTheory, MemberData(nameof(PartialGatePerServer))]
+    public async Task Comentarios_executaveis_executados_em_parte_sao_irreversiveis_na_primeira_confirmacao(string server, string shape)
+    {
+        await using var h = await Harness.OpenAsync(server);
+        var (i, m) = (Table("gpi", server), Table("gpm", server));
+        try
+        {
+            await h.RunAsync($"CREATE TABLE {i} (id INT PRIMARY KEY, v INT) ENGINE=InnoDB; INSERT INTO {i} VALUES (1,0),(2,0);" +
+                             $"CREATE TABLE {m} (id INT PRIMARY KEY, v INT) ENGINE=MyISAM; INSERT INTO {m} VALUES (1,0),(2,0);");
+            var (template, left) = PartialGateShapes[shape];
+            var sql = template.Replace("{gate}", server == "mariadb" ? "/*M!999999" : "/*!99999").Replace("{i}", i).Replace("{m}", m);
+
+            Assert.True(await h.Guard.IsIrreversibleAsync(h.TabId, DangerPlan(h, sql), default));
+            Assert.Equal(2L, await h.ScalarAsync($"SELECT COUNT(*) FROM {m} WHERE v = 0")); // nada gravado antes da confirmação
+
+            var outcome = await h.RunGuardedAsync(sql);
+
+            Assert.Equal(GuardStatus.Completed, outcome.Status);
+            Assert.Null(outcome.Pending);
+            Assert.False(h.Guard.HasPending(h.TabId));
+            Assert.DoesNotContain(h.LastSink.Messages, x => x.Text.Contains("nada é gravado"));
+            Assert.Equal(left, await h.ScalarAsync($"SELECT COUNT(*) FROM {m} WHERE v = 0")); // o servidor gravou em {m}
+            Assert.Equal(2L, await h.ScalarAsync($"SELECT COUNT(*) FROM {i} WHERE v = 0"));
+        }
+        finally
+        {
+            await h.RunAsync($"DROP TABLE IF EXISTS {i}; DROP TABLE IF EXISTS {m}");
+        }
+    }
+
     [IntegrationTheory, MemberData(nameof(TestServers.All), MemberType = typeof(TestServers))]
     public async Task View_como_alvo_e_irreversivel(string server)
     {

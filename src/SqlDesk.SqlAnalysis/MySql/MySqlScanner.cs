@@ -34,7 +34,11 @@ internal static class MySqlScanner
     /// <c>false</c> lê <c>/*!</c>, <c>/*M!</c> e <c>/*+</c> como comentário comum: é o que o servidor faz quando a versão é maior
     /// que a dele, quando o MySQL vê <c>/*M!</c> ou quando a dica <c>/*+</c> não vem logo após SELECT/INSERT/UPDATE/DELETE/REPLACE.
     /// </param>
-    public static ScanResult Scan(string text, bool backslashEscapes = true, bool executableComments = true)
+    /// <param name="gates">
+    /// Se não for null, recebe a abertura de cada comentário executável com versão ou sem ela (<c>/*!</c>, <c>/*!50000</c>,
+    /// <c>/*M!100000</c>), em maiúsculas: cada uma é uma condição que o servidor avalia sozinha.
+    /// </param>
+    public static ScanResult Scan(string text, bool backslashEscapes = true, bool executableComments = true, ICollection<string>? gates = null)
     {
         var statements = new List<MySqlStatement>();
         var all = new List<Token>();
@@ -102,8 +106,10 @@ internal static class MySqlScanner
                 if (open > 0 && !inExecutable)
                 {
                     inExecutable = true;
+                    var opener = i;
                     i += open;
                     while (i < text.Length && char.IsAsciiDigit(text[i])) i++;
+                    if (gates is not null && text[opener + 2] != '+') gates.Add(text[opener..i].ToUpperInvariant());
                     continue;
                 }
                 var close = text.IndexOf("*/", i + 2, StringComparison.Ordinal);

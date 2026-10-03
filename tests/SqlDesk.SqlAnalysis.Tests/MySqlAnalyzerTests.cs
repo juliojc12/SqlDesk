@@ -550,6 +550,38 @@ public class MySqlAnalyzerTests
     public void Comentario_executavel_com_o_mesmo_alvo_nao_acusa_mais_nada(string sql) =>
         Assert.DoesNotContain(DangerKind.Unanalyzable, Kinds(sql));
 
+    // ---- Rodada 1 do acompanhamento: o servidor executa só parte dos comentários executáveis ----
+
+    [Theory]
+    // MySQL 8 executa /*!50000 e ignora /*!99999: roda DELETE FROM m i (as duas leituras modeladas dizem i).
+    [InlineData("DELETE FROM /*!99999 i */ /*!50000 m */ i")]
+    // MariaDB 11 executa /*!50000 e ignora /*M!999999.
+    [InlineData("DELETE FROM /*M!999999 i */ /*!50000 m */ i")]
+    [InlineData("UPDATE /*!99999 i */ /*!50000 m */ i SET v = 5")]
+    [InlineData("DELETE FROM /*!99999 i */ /*! m */ i")]
+    // Sentido inverso: a leitura principal acusa i, mas o servidor roda um DELETE filtrado em m.
+    [InlineData("DELETE FROM /*!99999 i WHERE 1=1 OR id IN (SELECT 1 FROM */ m WHERE id=1 /*!99999 ) */ LIMIT 5")]
+    public void Comentarios_executaveis_executados_em_parte_tornam_o_trecho_nao_analisavel(string sql) =>
+        Assert.Contains(A.Analyze(sql).Dangers, d => d.Kind == DangerKind.Unanalyzable && d.Start == 0);
+
+    [Theory]
+    [InlineData("/*!40101 SET NAMES utf8 */;\n/*!40103 SET TIME_ZONE='+00:00' */;\n/*!40014 SET FOREIGN_KEY_CHECKS=0 */;\nDELETE FROM t", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE FROM /*!99999 m */ m", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE FROM /*!40101 */ t", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE /*!40101 LOW_PRIORITY */ FROM t", DangerKind.DeleteWithoutWhere)]
+    [InlineData("DELETE FROM t /*!40101 LIMIT 1 */ /*!40101 */", DangerKind.DeleteWithoutWhere)]
+    [InlineData("/*!40101 SET NAMES utf8 */; /*!50001 DROP TABLE t */", DangerKind.Drop)]
+    [InlineData("DELETE FROM t /*!40101 LIMIT 1 */;\n/*!50503 SET character_set_client = utf8mb4 */;", DangerKind.DeleteWithoutWhere)]
+    [InlineData("/*!40101 SET NAMES utf8 */;\nDELETE FROM /*!50000 t */;\n/*!40014 SET FOREIGN_KEY_CHECKS=1 */;", DangerKind.DeleteWithoutWhere)]
+    public void Comentario_executavel_comum_continua_sem_perigo_extra(string sql, DangerKind kind) =>
+        Assert.Equal([kind], Kinds(sql));
+
+    [Theory]
+    [InlineData("SELECT /*!50000 1 */, /*!99999 2 */")]
+    [InlineData("/*!40101 SET NAMES utf8 */; /*!40103 SET TIME_ZONE='+00:00' */; DELETE FROM t WHERE id = 1")]
+    [InlineData("UPDATE /*!50000 t */ SET a = 1 /*!99999 , b = 2 */ WHERE id = 1")]
+    public void Varios_comentarios_executaveis_sem_perigo_nao_acusam_nada(string sql) => Assert.Empty(Kinds(sql));
+
     [Fact]
     public void Analisador_do_SQL_Server_nunca_acusa_commit_implicito() =>
         Assert.False(((ISqlAnalyzer)SqlServerAnalyzer.Instance).CausesImplicitCommit("CREATE TABLE x (id INT); COMMIT"));

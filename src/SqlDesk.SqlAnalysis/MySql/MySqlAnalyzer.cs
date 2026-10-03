@@ -37,8 +37,10 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
         var dangers = new List<DangerousStatement>();
         var writes = false;
 
-        foreach (var st in scan.Statements)
+        var statements = scan.Statements;
+        for (var k = 0; k < statements.Count; k++)
         {
+            var st = statements[k];
             var text = script[st.Start..st.End];
             batches.Add(new Batch(batches.Count, text, st.Start, map.LineOf(st.Start)));
             // Core nulo (SET STATEMENT aninhado demais): conta como escrita, por segurança.
@@ -47,38 +49,96 @@ public sealed class MySqlAnalyzer : ISqlAnalyzer
             var found = ClassifyChunk(st, script, map);
             // As outras leituras rodam sempre, mesmo que a principal já tenha achado perigo: um DELETE perigoso não pode
             // servir de cobertura para um DROP que só existe na leitura do servidor (ex.: depois de um /*!99999 ' */).
-            if (AlternateScans(text).Any(alt => HasUncoveredDanger(alt, text, st.Start, found)))
+            var alternates = AlternateScans(text).Select(alt => AlternateReading.Of(alt, text, st.Start)).ToList();
+            string? why = null;
+            if (alternates.Any(alt => ReadingsDisagree(alt, found)))
+                why = "Dependendo do servidor (NO_BACKSLASH_ESCAPES, ou comentário /*! /*M! /*+ que ele ignora), este trecho é lido de " +
+                      "outro jeito (as aspas fecham em outro lugar ou o comando destrutivo atinge outro objeto ou outras linhas); " +
+                      "tratado como perigoso por segurança";
+            else if ((found.Count > 0 || alternates.Any(alt => alt.Dangers.Count > 0)) && GatesAround(script, scan, k) >= 2)
+                // Cada servidor executa só parte deles (o MySQL 8 roda /*!50000 e ignora /*!99999; o MariaDB 11 roda /*!99999 e
+                // ignora /*M!999999): as duas leituras modeladas (todos executados, nenhum executado) não cobrem as misturas.
+                why = "Comentários executáveis com versões diferentes (/*!, /*!NNNNN, /*M!NNNNNN): cada servidor executa só parte " +
+                      "deles, e o comando destrutivo pode atingir outro objeto; tratado como perigoso por segurança";
+            if (why is not null)
                 found.Add(new DangerousStatement(DangerKind.Unanalyzable, st.Start, Math.Max(1, st.End - st.Start), map.LineOf(st.Start),
-                    "Dependendo do servidor (NO_BACKSLASH_ESCAPES, ou comentário /*! /*M! /*+ que ele ignora), este trecho é lido de " +
-                    "outro jeito (as aspas fecham em outro lugar ou o comando destrutivo atinge outro objeto); tratado como perigoso " +
-                    "por segurança",
-                    null, [], CanPreviewWithOutput: false));
+                    why, null, [], CanPreviewWithOutput: false));
             dangers.AddRange(found);
         }
         return new ScriptAnalysis(batches, dangers.OrderBy(d => d.Start).ToList(), [], [], writes);
     }
 
     /// <summary>
-    /// A releitura <paramref name="alt"/> do trecho (que começa em <paramref name="offset"/> no script) tem algum perigo que a
-    /// leitura principal não lista: mesmo tipo, posição, alvo e contagem prévia, ou dentro de um trecho que ela já trata como
-    /// não analisável.
+    /// Uma releitura do trecho, em posições do script: os intervalos dos statements bem formados e os perigos deles.
     /// Statements quebrados na releitura são ignorados (o servidor os recusaria com erro de sintaxe).
     /// </summary>
-    private static bool HasUncoveredDanger(ScanResult alt, string text, int offset, List<DangerousStatement> main)
+    private sealed record AlternateReading(IReadOnlyList<(int Start, int End)> Statements, IReadOnlyList<DangerousStatement> Dangers)
     {
-        var map = new LineMap(text);
-        foreach (var s in alt.Statements.Where(s => !s.Broken))
-            foreach (var d in ClassifyChunk(s, text, map))
+        public static AlternateReading Of(ScanResult alt, string text, int offset)
+        {
+            var map = new LineMap(text);
+            var ranges = new List<(int, int)>();
+            var dangers = new List<DangerousStatement>();
+            foreach (var s in alt.Statements.Where(s => !s.Broken))
             {
-                var at = offset + d.Start;
-                // O alvo também precisa bater: um comentário executável pode trocar a tabela (DELETE FROM /*!99999 i */ m),
-                // e a checagem de mecanismo e o diálogo olhariam a tabela errada.
-                var covered = main.Any(m => (m.Kind == d.Kind && m.Start == at && string.Equals(m.Target, d.Target, StringComparison.Ordinal) &&
-                                             m.CountQueries.SequenceEqual(d.CountQueries, StringComparer.Ordinal)) ||
-                                            (m.Kind == DangerKind.Unanalyzable && m.Start <= at && at < m.Start + m.Length));
-                if (!covered) return true;
+                ranges.Add((offset + s.Start, offset + s.End));
+                dangers.AddRange(ClassifyChunk(s, text, map).Select(d => d with { Start = offset + d.Start }));
             }
+            return new AlternateReading(ranges, dangers);
+        }
+    }
+
+    /// <summary>Mesmo tipo, posição, alvo e contagem prévia (um comentário executável pode trocar a tabela).</summary>
+    private static bool SameDanger(DangerousStatement a, DangerousStatement b) =>
+        a.Kind == b.Kind && a.Start == b.Start && string.Equals(a.Target, b.Target, StringComparison.Ordinal) &&
+        a.CountQueries.SequenceEqual(b.CountQueries, StringComparer.Ordinal);
+
+    /// <summary>
+    /// A releitura e a leitura principal discordam nos perigos, nos dois sentidos: (1) a releitura tem um perigo que a
+    /// principal não lista (nem cobre com um trecho não analisável); (2) a principal tem um perigo que a releitura não tem,
+    /// embora ela execute algo naquele trecho (ex.: a principal vê <c>DELETE FROM i WHERE 1=1 ...</c> e o servidor roda um
+    /// DELETE filtrado em outra tabela). Se a releitura não executa nada ali (o comando todo estava num comentário ignorado,
+    /// ou ela quebra e o servidor recusaria), a diferença não importa.
+    /// </summary>
+    private static bool ReadingsDisagree(AlternateReading alt, List<DangerousStatement> main)
+    {
+        foreach (var d in alt.Dangers)
+        {
+            var covered = main.Any(m => SameDanger(m, d) ||
+                                        (m.Kind == DangerKind.Unanalyzable && m.Start <= d.Start && d.Start < m.Start + m.Length));
+            if (!covered) return true;
+        }
+        foreach (var m in main.Where(m => m.Kind != DangerKind.Unanalyzable))
+        {
+            var runsThere = alt.Statements.Any(s => s.Start < m.Start + m.Length && m.Start < s.End);
+            if (runsThere && !alt.Dangers.Any(d => SameDanger(m, d))) return true;
+        }
         return false;
+    }
+
+    /// <summary>
+    /// Quantas condições de versão diferentes (<c>/*!</c>, <c>/*!50000</c>, <c>/*M!999999</c>...) há em volta do statement
+    /// <paramref name="k"/>: do fim do anterior (a abertura de um comentário executável fica antes do primeiro token) até o
+    /// terminador dele (sem pegar a abertura do statement seguinte, como nos scripts do mysqldump). Conta nas duas leituras
+    /// das barras invertidas, para uma string não esconder uma abertura.
+    /// </summary>
+    private static int GatesAround(string script, ScanResult scan, int k)
+    {
+        var statements = scan.Statements;
+        var from = k > 0 ? statements[k - 1].End : 0;
+        var to = k + 1 < statements.Count ? statements[k + 1].Start : script.Length;
+        if (script.IndexOf("/*!", from, Math.Max(0, to - from), StringComparison.Ordinal) < 0 &&
+            script.IndexOf("/*M!", from, Math.Max(0, to - from), StringComparison.OrdinalIgnoreCase) < 0) return 0;
+        // Primeiro token depois do fim do statement (busca binária: os tokens estão em ordem); se for o terminador dele, corta ali.
+        var tokens = scan.Tokens;
+        int lo = 0, hi = tokens.Count;
+        while (lo < hi) { var mid = (lo + hi) / 2; if (tokens[mid].Start < statements[k].End) lo = mid + 1; else hi = mid; }
+        if (lo < tokens.Count && tokens[lo].Kind == TokenKind.Terminator && tokens[lo].End < to) to = tokens[lo].End;
+        var region = script[from..Math.Max(from, to)];
+        var gates = new HashSet<string>(StringComparer.Ordinal);
+        MySqlScanner.Scan(region, gates: gates);
+        MySqlScanner.Scan(region, backslashEscapes: false, gates: gates);
+        return gates.Count;
     }
 
     public LocateResult Locate(string text, int cursor)
