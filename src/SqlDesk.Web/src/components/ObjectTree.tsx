@@ -97,8 +97,8 @@ export function ObjectTree({ index, loading, error, onOpen }: Props) {
                                     ) : (
                                       index.columnsOf(o).map((c) => (
                                         <li key={c.name} role="treeitem" className="flex items-baseline gap-2 px-1 py-px text-xs" title={`${c.name} ${c.type}${c.nullable ? ' (aceita NULL)' : ' NOT NULL'}`}>
-                                          <span className="truncate">{c.name}</span>
-                                          <span className="ml-auto shrink-0 text-muted">{c.type}{c.nullable ? '' : ' · not null'}</span>
+                                          <span className="max-w-[55%] shrink-0 truncate">{c.name}</span>
+                                          <span className="ml-auto min-w-0 truncate text-muted">{c.type}{c.nullable ? '' : ' · not null'}</span>
                                         </li>
                                       ))
                                     )}
