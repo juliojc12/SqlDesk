@@ -733,6 +733,7 @@ export default function App() {
               if (t) requestClose(t)
             }}
             onRename={(id, title) => dispatch({ type: 'rename', id, title })}
+            onMove={(id, toIndex) => dispatch({ type: 'move', id, toIndex })}
             onNew={newTab}
             tranTabs={tranTabs}
           />

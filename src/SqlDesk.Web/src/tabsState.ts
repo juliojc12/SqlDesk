@@ -32,6 +32,7 @@ export type TabsAction =
   | { type: 'activate'; id: string }
   | { type: 'cycle'; direction: 1 | -1 }
   | { type: 'rename'; id: string; title: string }
+  | { type: 'move'; id: string; toIndex: number }
   | { type: 'setText'; id: string; text: string }
   | { type: 'setStatus'; id: string; status: ConnStatus; message?: string; serverVersion?: string; certificateUntrusted?: boolean }
   | { type: 'setConnection'; id: string; connectionId: string | null }
@@ -77,6 +78,16 @@ export function tabsReducer(state: TabsState, a: TabsAction): TabsState {
       const i = state.tabs.findIndex((t) => t.id === state.activeId)
       const next = (i + a.direction + state.tabs.length) % state.tabs.length
       return { ...state, activeId: state.tabs[next].id }
+    }
+    case 'move': {
+      // Reordenar só muda a posição: a aba ativa, o texto e as conexões continuam como estão.
+      const from = state.tabs.findIndex((t) => t.id === a.id)
+      const to = Math.max(0, Math.min(a.toIndex, state.tabs.length - 1))
+      if (from < 0 || from === to) return state
+      const tabs = state.tabs.slice()
+      const [t] = tabs.splice(from, 1)
+      tabs.splice(to, 0, t)
+      return { ...state, tabs }
     }
     case 'rename': {
       const title = a.title.trim()

@@ -10,14 +10,18 @@ interface Props {
   onActivate: (id: string) => void
   onClose: (id: string) => void
   onRename: (id: string, title: string) => void
+  /** Solta a aba arrastada na posição `toIndex` da lista. */
+  onMove: (id: string, toIndex: number) => void
   onNew: () => void
   /** Abas com transação aberta (selo TRAN). */
   tranTabs: ReadonlySet<string>
 }
 
-export function TabBar({ tabs, activeId, connections, onActivate, onClose, onRename, onNew, tranTabs }: Props) {
+export function TabBar({ tabs, activeId, connections, onActivate, onClose, onRename, onMove, onNew, tranTabs }: Props) {
   const [renaming, setRenaming] = useState<string | null>(null)
   const activeRef = useRef<HTMLDivElement>(null)
+  const dragId = useRef<string | null>(null)
+  const [dropAt, setDropAt] = useState<string | null>(null)
 
   // Mantém a aba ativa visível quando há rolagem horizontal.
   useEffect(() => {
@@ -30,6 +34,7 @@ export function TabBar({ tabs, activeId, connections, onActivate, onClose, onRen
         {tabs.map((t) => {
           const color = connections.find((c) => c.id === t.connectionId)?.color ?? NEUTRAL_COLOR
           const active = t.id === activeId
+          const dropTarget = dropAt === t.id
           return (
             <div
               key={t.id}
@@ -37,12 +42,35 @@ export function TabBar({ tabs, activeId, connections, onActivate, onClose, onRen
               role="tab"
               aria-selected={active}
               tabIndex={active ? 0 : -1}
+              // Arrastar uma aba para outra a reposiciona (mesmo gesto das colunas da grade).
+              draggable={renaming !== t.id}
+              onDragStart={(e) => {
+                dragId.current = t.id
+                e.dataTransfer.effectAllowed = 'move'
+              }}
+              onDragOver={(e) => {
+                if (dragId.current === null) return
+                e.preventDefault()
+                setDropAt(dragId.current === t.id ? null : t.id)
+              }}
+              onDragLeave={() => setDropAt((cur) => (cur === t.id ? null : cur))}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (dragId.current !== null) onMove(dragId.current, tabs.findIndex((x) => x.id === t.id))
+                dragId.current = null
+                setDropAt(null)
+              }}
+              onDragEnd={() => {
+                dragId.current = null
+                setDropAt(null)
+              }}
               onClick={() => onActivate(t.id)}
               onAuxClick={(e) => e.button === 1 && onClose(t.id)}
               onDoubleClick={() => setRenaming(t.id)}
               title={t.filePath ?? t.title}
               style={{
                 borderTopColor: color,
+                boxShadow: dropTarget ? 'inset 3px 0 0 var(--fg)' : undefined,
                 backgroundColor: active ? `color-mix(in srgb, ${color} 10%, var(--surface))` : undefined,
               }}
               className={`group flex max-w-56 shrink-0 cursor-pointer items-center gap-2 border-t-[3px] px-3 text-sm ${active ? 'text-fg' : 'text-muted hover:bg-hover'}`}

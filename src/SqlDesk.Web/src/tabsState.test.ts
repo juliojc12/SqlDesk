@@ -65,6 +65,27 @@ describe('tabsReducer', () => {
     expect(s.tabs[0].title).toBe('Pedidos')
   })
 
+  it('mover reposiciona a aba sem mudar a ativa nem o conteúdo, e a ordem sobrevive à persistência', () => {
+    let s = add(add(add(initialTabsState, 'a'), 'b'), 'c')
+    s = tabsReducer(s, { type: 'setText', id: 'a', text: 'SELECT 1' })
+    s = tabsReducer(s, { type: 'activate', id: 'b' })
+    s = tabsReducer(s, { type: 'move', id: 'a', toIndex: 2 })
+    expect(s.tabs.map((t) => t.id)).toEqual(['b', 'c', 'a'])
+    expect(s.activeId).toBe('b')
+    expect(s.tabs[2].text).toBe('SELECT 1')
+    s = tabsReducer(s, { type: 'move', id: 'c', toIndex: 0 })
+    expect(s.tabs.map((t) => t.id)).toEqual(['c', 'b', 'a'])
+    expect(deserialize(serialize(s), new Set(['c1'])).tabs.map((t) => t.id)).toEqual(['c', 'b', 'a'])
+  })
+
+  it('mover para a mesma posição, para um índice fora da lista ou uma aba inexistente', () => {
+    const s = add(add(initialTabsState, 'a'), 'b')
+    expect(tabsReducer(s, { type: 'move', id: 'a', toIndex: 0 })).toBe(s)
+    expect(tabsReducer(s, { type: 'move', id: 'x', toIndex: 1 })).toBe(s)
+    expect(tabsReducer(s, { type: 'move', id: 'a', toIndex: 99 }).tabs.map((t) => t.id)).toEqual(['b', 'a'])
+    expect(tabsReducer(s, { type: 'move', id: 'b', toIndex: -5 }).tabs.map((t) => t.id)).toEqual(['b', 'a'])
+  })
+
   it('excluir uma conexão desanexa as abas dela, preservando o texto', () => {
     let s = add(add(initialTabsState, 'a', 'c1'), 'b', 'c2')
     s = tabsReducer(s, { type: 'setText', id: 'a', text: 'SELECT 1' })
