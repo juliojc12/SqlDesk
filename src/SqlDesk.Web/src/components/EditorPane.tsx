@@ -25,9 +25,10 @@ export function EditorPane({ tabId, initialText, onChange }: Props) {
       onChange={(v) => onChange(v ?? '')}
       loading={<div className="p-4 text-sm text-muted">Carregando editor…</div>}
       options={{
-        fontFamily: '"Cascadia Code", "Cascadia Mono", Consolas, monospace',
-        fontSize: 15,
-        lineHeight: 26,
+        fontFamily: '"Fira Code", "Cascadia Code", Consolas, monospace',
+        fontSize: 13,
+        lineHeight: 24,
+        fontLigatures: true,
         minimap: { enabled: false },
         automaticLayout: true,
         scrollBeyondLastLine: false,
