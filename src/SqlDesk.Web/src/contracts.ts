@@ -147,6 +147,14 @@ export interface QueryRowsEvent { tabId: string; executionId: string; resultInde
 export interface QueryResultCompletedEvent { tabId: string; executionId: string; resultIndex: number; rowCount: number; truncated: boolean }
 export interface QueryMessageEvent { tabId: string; executionId: string; kind: MessageKind; text: string; line?: number }
 
+export type AiProviderId = 'openai' | 'anthropic' | 'gemini'
+
+/** A chave de API nunca chega ao frontend: só `hasKey`. */
+export interface AiSettings { provider: AiProviderId; model: string; hasKey: boolean }
+
+/** `readOnly` é decidido pela trava do backend. Falso: o SQL deve entrar no editor comentado. */
+export interface AiGenerateResponse { sql: string; notes?: string | null; readOnly: boolean; reason?: string | null }
+
 // Mapa tipo -> { request, response }
 export interface Requests {
   ping: { request: { message: string }; response: { message: string; serverTime: string } }
@@ -191,6 +199,10 @@ export interface Requests {
   'export.cancel': { request: { exportId: string }; response: Record<string, never> }
   'export.openFile': { request: { path: string }; response: Record<string, never> }
   'export.showInFolder': { request: { path: string }; response: Record<string, never> }
+  'ai.settings.get': { request: Record<string, never>; response: AiSettings }
+  'ai.settings.save': { request: { provider: AiProviderId; model: string; apiKey?: string | null; removeKey: boolean }; response: AiSettings }
+  'ai.generate': { request: { tabId: string; connectionId: string; prompt: string }; response: AiGenerateResponse }
+  'ai.cancel': { request: { tabId: string }; response: Record<string, never> }
   'window.forceClose': { request: Record<string, never>; response: Record<string, never> }
   'session.load': { request: Record<string, never>; response: { state?: string | null } }
   'session.save': { request: { state: string }; response: Record<string, never> }

@@ -36,6 +36,10 @@ public partial class App : Application
             return new SqlDesk.Core.Metadata.MetadataService((id, ct) => sessions.OpenSideConnectionAsync(id, ct));
         });
         sc.AddSingleton(new SessionStateStore(SessionStateStore.DefaultPath));
+        sc.AddSingleton(sp => new SqlDesk.Core.Ai.AiSettingsStore(SqlDesk.Core.Ai.AiSettingsStore.DefaultPath, new DpapiPasswordProtector("SqlDesk.ai.v1")));
+        sc.AddSingleton(new SqlDesk.Core.Ai.AiClient(new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(60) }));
+        sc.AddSingleton<SqlDesk.Core.Ai.AiService>();
+        sc.AddSingleton<AiRegistry>();
         sc.AddSingleton<WindowController>();
         sc.AddSingleton<EventHub>();
 
@@ -53,6 +57,7 @@ public partial class App : Application
             typeof(MetadataRefreshHandler), typeof(MetadataGetHandler),
             typeof(ExportPickPathHandler), typeof(ExportLoadedHandler), typeof(ExportRerunHandler), typeof(ExportCancelHandler),
             typeof(OpenExportedFileHandler), typeof(ShowExportedFileHandler),
+            typeof(AiSettingsGetHandler), typeof(AiSettingsSaveHandler), typeof(AiGenerateHandler), typeof(AiCancelHandler),
             typeof(SaveFileHandler), typeof(OpenFileHandler),
             typeof(MinimizeWindowHandler), typeof(ToggleMaximizeWindowHandler), typeof(CloseWindowHandler),
         })

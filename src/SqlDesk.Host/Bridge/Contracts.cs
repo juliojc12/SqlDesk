@@ -144,3 +144,15 @@ public sealed record PathRequest(string Path);
 
 // ---- Janela ----
 public sealed record WindowStateEvent(bool Maximized);
+
+// ---- Consulta com IA ----
+/// <param name="Provider">openai | anthropic | gemini</param>
+public sealed record AiSettingsDto(string Provider, string Model, bool HasKey);
+
+/// <param name="ApiKey">Nova chave; nula ou vazia mantém a atual. Nunca volta ao frontend.</param>
+public sealed record AiSaveSettingsRequest(string Provider, string Model, string? ApiKey, bool RemoveKey);
+
+public sealed record AiGenerateRequest(string TabId, Guid ConnectionId, string Prompt);
+
+/// <param name="ReadOnly">Decidido pela trava no backend. Falso: o SQL deve voltar ao usuário comentado.</param>
+public sealed record AiGenerateResponse(string Sql, string? Notes, bool ReadOnly, string? Reason);

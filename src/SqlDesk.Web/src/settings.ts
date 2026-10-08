@@ -13,13 +13,15 @@ export interface AppSettings {
   csvDelimiter: CsvDelimiter
   /** Timeout de comando (segundos, 0 = sem limite) proposto ao criar uma conexão nova; cada conexão guarda o seu. */
   commandTimeout: number
+  /** Modo IA: Ctrl+Enter gera o SQL a partir do texto em linguagem natural em vez de executar. Provedor, modelo e chave ficam no backend. */
+  aiEnabled: boolean
 }
 
 export const MIN_ROWS = 100
 export const MAX_ROWS = 1_000_000
 export const MAX_TIMEOUT = 86_400
 
-export const DEFAULT_SETTINGS: AppSettings = { maxRows: 10_000, autoAlias: true, csvDelimiter: ';', commandTimeout: 30 }
+export const DEFAULT_SETTINGS: AppSettings = { maxRows: 10_000, autoAlias: true, csvDelimiter: ';', commandTimeout: 30, aiEnabled: false }
 
 const KEY = 'sqldesk.settings'
 
@@ -36,6 +38,7 @@ export function normalize(raw: unknown): AppSettings {
     autoAlias: typeof o.autoAlias === 'boolean' ? o.autoAlias : DEFAULT_SETTINGS.autoAlias,
     csvDelimiter: o.csvDelimiter === ',' ? ',' : ';',
     commandTimeout: clampInt(o.commandTimeout, 0, MAX_TIMEOUT, DEFAULT_SETTINGS.commandTimeout),
+    aiEnabled: o.aiEnabled === true,
   }
 }
 
@@ -63,6 +66,7 @@ let cache: AppSettings | null = null
 
 const current = () => (cache ??= loadSettings())
 
+export const getAiEnabled = () => current().aiEnabled
 export const getAutoAlias = () => current().autoAlias
 export const getCsvDelimiter = () => current().csvDelimiter
 export const getMaxRows = () => current().maxRows

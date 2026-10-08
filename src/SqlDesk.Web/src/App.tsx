@@ -21,14 +21,15 @@ import type {
   AppCloseRequestedEvent, ConnectionInfo, ExportProgressEvent, DocRange, GuardExpiredEvent, GuardInfo, MetadataUpdatedEvent, TabConnectionLostEvent,
   TabTransactionEvent,
 } from './contracts'
-import { formatEditor, highlightRange, revealLine, snapshotOf, wrapInTransaction, type EditorSnapshot } from './editorActions'
+import { findRequest, resultText } from './aiRequest'
+import { formatEditor, highlightRange, replaceRequest, revealLine, snapshotOf, wrapInTransaction, type EditorSnapshot } from './editorActions'
 import { quoteIfNeeded } from './suggest'
 import { applyMetadata, getMeta, patchMeta, providerOfTab, setConnectionDatabase, setConnectionProvider, setTabConnection, useMeta } from './metadataStore'
 import { aliasReservedWords, providerOf } from './providers'
 import type { MetaObject } from './metadataIndex'
 import { monaco } from './monacoSetup'
 import { SettingsDialog } from './components/SettingsDialog'
-import { getAutoAlias, getCsvDelimiter, getMaxRows, loadSettings, saveSettings, type AppSettings } from './settings'
+import { getAiEnabled, getAutoAlias, getCsvDelimiter, getMaxRows, loadSettings, saveSettings, type AppSettings } from './settings'
 import { beginRun, failRun, finishRun, type ResultSet } from './results'
 import { clearResults, getResults, listenToQueryEvents, updateResults, useTabResults } from './resultsStore'
 import { deserialize, initialTabsState, isDirty, serialize, tabsReducer, type Tab } from './tabsState'
@@ -102,6 +103,8 @@ export default function App() {
   const [exportChoice, setExportChoice] = useState<{ format: 'csv' | 'xlsx'; set: ResultSet; view: GridView } | null>(null)
   const [exportJob, setExportJob] = useState<ExportJob | null>(null)
   const [autoAlias, setAutoAliasState] = useState(getAutoAlias)
+  const [aiMode, setAiMode] = useState(getAiEnabled)
+  const [aiBusyTab, setAiBusyTab] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [confirmDisconnect, setConfirmDisconnect] = useState<{ message: string; run: () => Promise<void> } | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -257,6 +260,45 @@ export default function App() {
     else if (r?.status === 'unchanged') setNotice('O texto já está formatado.')
   }
 
+  function toggleAi() {
+    setAiMode(saveSettings({ ...loadSettings(), aiEnabled: !aiMode }).aiEnabled)
+  }
+
+  /**
+   * Modo IA: troca o pedido em linguagem natural (seleção ou parágrafo sob o cursor) pelo SQL gerado. Nunca executa: a trava
+   * de somente leitura está no backend e o SQL reprovado volta comentado.
+   */
+  async function generateSql() {
+    const l = latest.current
+    const tab = l.activeTab
+    if (!tab || l.modalOpen || aiBusyRef.current) return
+    if (tab.connectionId === null) {
+      setNotice('Escolha uma conexão para a aba antes de gerar uma consulta.')
+      return
+    }
+    const snap = snapshotOf(tab.id)
+    const span = snap && findRequest(snap.text, snap.cursor, snap.selectionStart, snap.selectionEnd)
+    if (!span) {
+      setNotice('Modo IA: escreva o que você quer consultar (selecione o texto ou deixe o cursor no parágrafo) e use Ctrl+Enter.')
+      return
+    }
+    aiBusyRef.current = true
+    setAiBusyTab(tab.id)
+    try {
+      const r = await invoke('ai.generate', { tabId: tab.id, connectionId: tab.connectionId, prompt: span.text })
+      const done = replaceRequest(tab.id, span.start, span.end, span.text, resultText(r.sql, r.readOnly, r.reason))
+      if (!done) setNotice('O texto mudou enquanto a IA respondia, então nada foi alterado. Gere de novo.')
+      else if (!r.readOnly) setNotice(`O SQL gerado não é somente leitura (${r.reason ?? 'reprovado na trava'}). Entrou comentado, só para você revisar; nada foi executado.`)
+      else if (r.notes) setNotice(`SQL gerado, não executado. ${r.notes}`)
+      else setNotice('SQL gerado, não executado. Desligue o modo IA e use Ctrl+Enter para rodar.')
+    } catch (e) {
+      if (!(e instanceof BridgeCallError && e.detail.code === 'cancelled')) setNotice(msg(e))
+    } finally {
+      aiBusyRef.current = false
+      setAiBusyTab(null)
+    }
+  }
+
   function toggleAutoAlias() {
     setAutoAliasState(saveSettings({ ...loadSettings(), autoAlias: !autoAlias }).autoAlias)
   }
@@ -358,6 +400,8 @@ export default function App() {
     const l = latest.current
     const tab = l.activeTab
     if (!tab || getResults(tab.id).running || (l.modalOpen && !opts.fromDialog)) return
+    // Modo IA: Executar, Script, Ctrl+Enter e F5 geram o SQL em vez de rodar. Reexecuções internas (confirmações, "Carregar todas") passam.
+    if (aiModeRef.current && !opts.fromDialog && !opts.snapshot && !opts.confirmDangerous && !opts.skipTranAdvice && !opts.noRowLimit) return void generateSql()
     if (tab.status !== 'connected') {
       setNotice('Conecte a aba antes de executar.')
       return
@@ -434,6 +478,7 @@ export default function App() {
 
   function stop() {
     const tab = latest.current.activeTab
+    if (tab && aiBusyRef.current) void invoke('ai.cancel', { tabId: tab.id }).catch((e) => setError(msg(e)))
     if (tab && getResults(tab.id).running) void invoke('query.cancel', { tabId: tab.id }).catch((e) => setError(msg(e)))
   }
 
@@ -623,6 +668,9 @@ export default function App() {
 
   // ---------- Atalhos globais (fase de captura: antes do Monaco) ----------
   const modalOpen = !!(danger || guardDlg || closingTran || appClose || confirmDisconnect)
+  const aiModeRef = useRef(aiMode)
+  aiModeRef.current = aiMode
+  const aiBusyRef = useRef(false)
   const latest = useRef({ newTab, requestClose, saveTab, openFile, activeTab, execute, stop, modalOpen, noAdvice, formatActive })
   latest.current = { newTab, requestClose, saveTab, openFile, activeTab, execute, stop, modalOpen, noAdvice, formatActive }
   useEffect(() => {
@@ -636,7 +684,7 @@ export default function App() {
       // Execução (como no DBeaver): F5 roda o script; Esc cancela só se houver execução em andamento.
       if (e.key === 'F5' && !e.ctrlKey && !e.altKey) return run(() => void l.execute('script'))
       if (e.shiftKey && e.altKey && !e.ctrlKey && e.code === 'KeyF') return run(l.formatActive)
-      if (e.key === 'Escape' && l.activeTab && getResults(l.activeTab.id).running) return run(l.stop)
+      if (e.key === 'Escape' && l.activeTab && (getResults(l.activeTab.id).running || aiBusyRef.current)) return run(l.stop)
 
       if (!e.ctrlKey || e.altKey) return
       const k = e.key.toLowerCase()
@@ -773,6 +821,9 @@ export default function App() {
                 onToggleAlias={toggleAutoAlias}
                 metaLoading={activeMeta.loading}
                 onFormat={formatActive}
+                aiMode={aiMode}
+                aiBusy={aiBusyTab === activeTab.id}
+                onToggleAi={toggleAi}
                 onRefreshMetadata={() => activeTab.connectionId && void ensureMetadata(activeTab.connectionId, true)}
               />
               {(activeTab.status === 'error' || activeTab.status === 'no-connection') && activeTab.statusMessage && (
@@ -897,6 +948,7 @@ export default function App() {
           onSave={(s: AppSettings) => {
             const saved = saveSettings(s)
             setAutoAliasState(saved.autoAlias)
+            setAiMode(saved.aiEnabled)
             setSettingsOpen(false)
             setNotice('Configurações salvas.')
           }}

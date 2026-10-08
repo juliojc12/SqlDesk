@@ -22,23 +22,28 @@ interface Props {
   metaLoading: boolean
   onFormat: () => void
   onRefreshMetadata: () => void
+  aiMode: boolean
+  aiBusy: boolean
+  onToggleAi: () => void
 }
 
 const ghost = 'flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 text-sm text-fg enabled:hover:bg-hover disabled:opacity-40'
 
-export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop, tranCount, onBeginTran, autoAlias, onToggleAlias, metaLoading, onRefreshMetadata, onFormat }: Props) {
+export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop, tranCount, onBeginTran, autoAlias, onToggleAlias, metaLoading, onRefreshMetadata, onFormat, aiMode, aiBusy, onToggleAi }: Props) {
   const connected = tab.status === 'connected'
-  const canRun = connected && !running
+  const canRun = connected && !running && !aiBusy
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-4">
       <button
         disabled={!canRun}
         onClick={onRun}
-        title="Executar a seleção ou o statement sob o cursor (Ctrl+Enter). Ctrl+\ abre o resultado em nova sub-aba"
+        title={aiMode
+          ? 'Modo IA: gera o SQL a partir do pedido (seleção ou parágrafo sob o cursor) e NÃO executa (Ctrl+Enter)'
+          : 'Executar a seleção ou o statement sob o cursor (Ctrl+Enter). Ctrl+\\ abre o resultado em nova sub-aba'}
         style={{ backgroundColor: color, color: textOn(color) }}
-        className="flex h-9 items-center gap-2 rounded-lg px-4 text-[15px] font-medium disabled:opacity-50"
+        className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-4 text-[15px] font-medium disabled:opacity-50"
       >
-        <span className="icon">&#xE768;</span> Executar
+        <span className="icon">{aiMode ? '' : ''}</span> {aiBusy ? 'Gerando…' : aiMode ? 'Gerar SQL' : 'Executar'}
       </button>
       <button disabled={!canRun} onClick={onRunScript} title="Executar o script inteiro (F5)" className={ghost}>
         <span className="icon">&#xEA37;</span> Script
@@ -84,6 +89,14 @@ export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onD
         onClick={onToggleAlias}
       >
         Alias {autoAlias ? 'ligado' : 'desligado'}
+      </button>
+      <button
+        className={`${ghost} ${aiMode ? 'bg-hover font-medium' : ''}`}
+        title="Modo IA: escreva o que quer consultar em português e o Ctrl+Enter gera o SQL (somente leitura, nunca executa sozinho)"
+        aria-pressed={aiMode}
+        onClick={onToggleAi}
+      >
+        IA {aiMode ? 'ligada' : 'desligada'}
       </button>
 
       <div className="ml-auto flex min-w-0 items-center gap-3 text-[15px] text-muted">

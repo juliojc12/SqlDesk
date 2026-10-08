@@ -11,7 +11,7 @@ describe('normalize', () => {
 
   it('aceita valores válidos, inclusive digitados como texto', () => {
     expect(normalize({ maxRows: '5000', commandTimeout: '120', autoAlias: false, csvDelimiter: ',' })).toEqual({
-      maxRows: 5000, commandTimeout: 120, autoAlias: false, csvDelimiter: ',',
+      maxRows: 5000, commandTimeout: 120, autoAlias: false, csvDelimiter: ',', aiEnabled: false,
     })
   })
 

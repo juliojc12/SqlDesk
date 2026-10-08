@@ -108,3 +108,21 @@ export function formatEditor(tabId: string, provider: ProviderId = 'sqlserver'):
   editor.focus()
   return { status: 'formatted' }
 }
+
+/**
+ * Troca o pedido em linguagem natural pelo SQL gerado, entrando na pilha de desfazer (Ctrl+Z devolve o pedido). Só troca se o
+ * trecho ainda for o mesmo que foi enviado: se o usuário editou enquanto a IA respondia, o texto não é tocado.
+ */
+export function replaceRequest(tabId: string, start: number, end: number, expected: string, text: string): boolean {
+  const shown = editorShowing(tabId)
+  if (!shown) return false
+  const { model, editor } = shown
+  if (end > model.getValueLength() || model.getValue().slice(start, end) !== expected) return false
+  const a = model.getPositionAt(start)
+  const b = model.getPositionAt(end)
+  editor.pushUndoStop()
+  editor.executeEdits('sqldesk-ai', [{ range: new monaco.Range(a.lineNumber, a.column, b.lineNumber, b.column), text }])
+  editor.pushUndoStop()
+  editor.focus()
+  return true
+}

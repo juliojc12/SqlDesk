@@ -1,6 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { BridgeCallError, invoke } from '../bridge'
+import type { AiProviderId } from '../contracts'
 import { DEFAULT_SETTINGS, MAX_ROWS, MAX_TIMEOUT, MIN_ROWS, normalize, type AppSettings } from '../settings'
 import { btnBase, btnPrimary, Modal } from './Modal'
+
+const AI_PROVIDERS: { id: AiProviderId; label: string; defaultModel: string }[] = [
+  { id: 'anthropic', label: 'Claude (Anthropic)', defaultModel: 'claude-haiku-5-5' },
+  { id: 'openai', label: 'ChatGPT (OpenAI)', defaultModel: 'gpt-4o-mini' },
+  { id: 'gemini', label: 'Gemini (Google)', defaultModel: 'gemini-2.0-flash' },
+]
 
 const input = 'w-full rounded-md border border-line bg-input px-2 py-1.5 text-sm'
 
@@ -15,7 +23,47 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
   const [autoAlias, setAutoAlias] = useState(settings.autoAlias)
   const [delimiter, setDelimiter] = useState(settings.csvDelimiter)
 
-  const draft = normalize({ maxRows, commandTimeout: timeout, autoAlias, csvDelimiter: delimiter })
+  // Consulta com IA: provedor, modelo e chave vivem no backend (a chave nunca volta para cá, só se existe).
+  const [aiProvider, setAiProvider] = useState<AiProviderId>('anthropic')
+  const [aiModel, setAiModel] = useState('')
+  const [aiKey, setAiKey] = useState('')
+  const [aiHasKey, setAiHasKey] = useState(false)
+  const [aiRemoveKey, setAiRemoveKey] = useState(false)
+  const [aiLoaded, setAiLoaded] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    invoke('ai.settings.get', {})
+      .then((r) => {
+        if (!alive) return
+        setAiProvider(r.provider)
+        setAiModel(r.model)
+        setAiHasKey(r.hasKey)
+        setAiLoaded(true)
+      })
+      .catch(() => alive && setAiLoaded(false))
+    return () => { alive = false }
+  }, [])
+
+  const draft = normalize({ maxRows, commandTimeout: timeout, autoAlias, csvDelimiter: delimiter, aiEnabled: settings.aiEnabled })
+
+  async function submit() {
+    setAiError(null)
+    if (aiLoaded) {
+      setSaving(true)
+      try {
+        await invoke('ai.settings.save', { provider: aiProvider, model: aiModel.trim(), apiKey: aiKey.trim() || null, removeKey: aiRemoveKey })
+      } catch (e) {
+        setAiError(e instanceof BridgeCallError ? e.detail.message : String(e))
+        setSaving(false)
+        return
+      }
+      setSaving(false)
+    }
+    onSave(draft)
+  }
   const adjusted = String(draft.maxRows) !== maxRows.trim() || String(draft.commandTimeout) !== timeout.trim()
 
   return (
@@ -24,7 +72,7 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
         className="p-5"
         onSubmit={(e) => {
           e.preventDefault()
-          onSave(draft)
+          void submit()
         }}
       >
         <h2 className="text-base font-semibold">Configurações</h2>
@@ -61,6 +109,61 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
               0 = sem limite (máximo {MAX_TIMEOUT.toLocaleString('pt-BR')}). Cada conexão guarda o seu próprio timeout; isto só define o valor inicial de uma conexão nova.
             </span>
           </label>
+
+          <fieldset className="space-y-3 rounded-md border border-line p-3">
+            <legend className="px-1 font-medium">Consulta com IA</legend>
+            {!aiLoaded ? (
+              <p className="text-xs text-muted">Indisponível: o backend não respondeu.</p>
+            ) : (
+              <>
+                <label className="block">
+                  <span>Provedor</span>
+                  <select
+                    className={`${input} mt-1`}
+                    value={aiProvider}
+                    aria-label="Provedor de IA"
+                    onChange={(e) => {
+                      const next = e.target.value as AiProviderId
+                      // Trocar de provedor com o modelo padrão do anterior: acompanha o padrão do novo.
+                      if (AI_PROVIDERS.some((p) => p.id === aiProvider && p.defaultModel === aiModel)) setAiModel(AI_PROVIDERS.find((p) => p.id === next)!.defaultModel)
+                      setAiProvider(next)
+                    }}
+                  >
+                    {AI_PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span>Modelo</span>
+                  <input className={`${input} mt-1`} value={aiModel} onChange={(e) => setAiModel(e.target.value)} aria-label="Modelo de IA"
+                    placeholder={AI_PROVIDERS.find((p) => p.id === aiProvider)?.defaultModel} spellCheck={false} />
+                </label>
+                <label className="block">
+                  <span>Chave de API</span>
+                  <input
+                    className={`${input} mt-1`}
+                    type="password"
+                    autoComplete="off"
+                    value={aiKey}
+                    aria-label="Chave de API"
+                    placeholder={aiHasKey && !aiRemoveKey ? 'Chave salva (digite para trocar)' : 'Cole a chave aqui'}
+                    onChange={(e) => { setAiKey(e.target.value); setAiRemoveKey(false) }}
+                  />
+                </label>
+                {aiHasKey && (
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={aiRemoveKey} onChange={(e) => { setAiRemoveKey(e.target.checked); if (e.target.checked) setAiKey('') }} />
+                    Remover a chave salva
+                  </label>
+                )}
+                <p className="text-xs text-muted">
+                  A chave fica protegida no seu usuário do Windows e só o app a lê. Ao gerar uma consulta, o pedido e os nomes das tabelas, colunas e tipos
+                  do banco são enviados ao provedor escolhido; o conteúdo das linhas nunca é enviado. O SQL gerado só é aceito se for uma consulta de
+                  leitura e nunca é executado sozinho.
+                </p>
+              </>
+            )}
+            {aiError && <p role="alert" className="rounded-md bg-red-200 px-3 py-2 text-sm text-red-950">{aiError}</p>}
+          </fieldset>
         </div>
 
         {adjusted && (
@@ -71,7 +174,7 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
 
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className={btnBase} onClick={onCancel}>Cancelar</button>
-          <button type="submit" className={btnPrimary}>Salvar</button>
+          <button type="submit" className={btnPrimary} disabled={saving}>Salvar</button>
         </div>
       </form>
     </Modal>

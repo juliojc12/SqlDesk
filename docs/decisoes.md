@@ -99,3 +99,14 @@ Cliente desktop leve para consultar bancos SQL Server, MySQL e MariaDB (Windows)
 
 - A faixa vermelha de erro some sozinha depois de 7 s (até 20 s, conforme o tamanho do texto). Só os avisos críticos ficam até o usuário fechar: hoje, a queda de conexão que desfez uma transação aberta.
 - O "Canceled" que aparecia como "Erro inesperado: Canceled: Canceled" era o Monaco rejeitando a promessa de uma sugestão ou formatação cancelada. Cancelamentos (Monaco, `AbortError` e o código `cancelled` do backend) deixaram de gerar aviso; erros reais mostram "Ocorreu um erro inesperado na interface: <motivo>". A lógica está em `rejections.ts`.
+
+## Consulta com IA
+
+- **Primeira chamada de saída do app, opt-in:** nada sai da máquina até o usuário cadastrar uma chave em Configurações e ligar o modo IA. A chamada HTTP fica no backend (`SqlDesk.Core/Ai/AiClient`): em Release a interface roda em `https://app.sqldesk/` (CORS bloquearia) e a chave não pode ficar ao alcance do JavaScript.
+- **O que sai:** o pedido digitado e o esquema compacto (`tabela(coluna tipo, ...)`, até 24 mil caracteres, priorizando o que o pedido menciona). Nunca linhas de dados. O aviso está no diálogo de configurações.
+- **Chave de API:** `%APPDATA%\SqlDesk\ai.json`, protegida com DPAPI (entropia própria `SqlDesk.ai.v1`). O frontend só recebe `hasKey`; provedor e modelo ficam no mesmo arquivo. Só o liga/desliga do modo fica em `localStorage`.
+- **Trava independente do modelo:** `AiSqlGuard` (SqlAnalysis) exige um único comando começando com `SELECT`/`WITH`, recusa `INTO`, `EXEC`, `OPENROWSET`, `xp_`/`sp_`, `SLEEP`, `LOAD_FILE`, `FOR UPDATE`, comentários executáveis do MySQL etc. (olhando o texto cru, então há falsos positivos aceitos) e ainda consulta `ISqlAnalyzer.IsReadOnly` do provedor. O `writesData` que o modelo devolve é ignorado: quem decide é a trava.
+- **Nunca executa:** o resultado só entra no editor. Reprovado na trava, entra comentado linha a linha (`-- `), de modo que um `Ctrl+Enter` acidental não rode nada; descomentar e executar passa pelas travas e confirmações de sempre.
+- **Registro de erros:** nenhuma mensagem de erro de IA inclui a chave, o pedido ou o corpo da resposta do provedor.
+- **Fora do escopo (v1):** chat com histórico, nova tentativa automática, chaves estrangeiras no contexto e endpoints compatíveis com OpenAI (Ollama, Azure).
+

@@ -11,9 +11,9 @@ public interface IPasswordProtector
 }
 
 /// <summary>DPAPI com escopo do usuário atual. Saída em Base64.</summary>
-public sealed class DpapiPasswordProtector : IPasswordProtector
+public sealed class DpapiPasswordProtector(string purpose = "SqlDesk.connections.v1") : IPasswordProtector
 {
-    private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("SqlDesk.connections.v1");
+    private readonly byte[] Entropy = Encoding.UTF8.GetBytes(purpose);
 
     public string Protect(string plain) =>
         Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(plain), Entropy, DataProtectionScope.CurrentUser));
