@@ -40,12 +40,72 @@ public sealed partial class AiClient(HttpClient http)
 
         using (response)
         {
+            if (response.StatusCode == HttpStatusCode.NotFound && AiProviders.Get(provider).Kind == AiKind.Compatible)
+                throw new AiException("not_found", await NotFoundMessageAsync(provider, model, baseUrl, apiKey, ct));
             if (!response.IsSuccessStatusCode) throw FromStatus(response.StatusCode);
             string body;
             try { body = await response.Content.ReadAsStringAsync(ct); }
             catch (HttpRequestException) { throw new AiException("network", "A conexão com o provedor de IA caiu antes do fim da resposta."); }
             return ParseSuggestion(ExtractText(AiProviders.Get(provider).Kind, body));
         }
+    }
+
+    /// <summary>
+    /// "Modelo não encontrado" em provedor compatível: consulta a lista de modelos do próprio provedor (GET /models) e sugere
+    /// os nomes parecidos, já que o erro costuma ser o formato do id (por exemplo, o prefixo duplicado de um roteador).
+    /// </summary>
+    private async Task<string> NotFoundMessageAsync(string provider, string model, string? baseUrl, string apiKey, CancellationToken ct)
+    {
+        const string basic = "Modelo não encontrado no provedor. Confira o nome exato do modelo nas configurações.";
+        try
+        {
+            var root = AiProviders.ResolveBaseUrl(AiProviders.Get(provider), baseUrl);
+            if (root is null) return basic;
+            using var req = new HttpRequestMessage(HttpMethod.Get, root + "/models");
+            if (apiKey.Length > 0) req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + apiKey);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(10));
+            using var res = await http.SendAsync(req, cts.Token);
+            if (!res.IsSuccessStatusCode) return basic;
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(cts.Token));
+            var ids = doc.RootElement.GetProperty("data").EnumerateArray()
+                .Select(m => m.TryGetProperty("id", out var id) ? id.GetString() : null)
+                .Where(id => !string.IsNullOrEmpty(id)).Cast<string>().ToList();
+            return basic + SimilarModels(model, ids);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or KeyNotFoundException or InvalidOperationException or OperationCanceledException)
+        {
+            if (ct.IsCancellationRequested) throw;
+            return basic;
+        }
+    }
+
+    /// <summary>Texto com os ids da lista que contêm o final do nome pedido (depois da última barra); vazio se nada parecer.</summary>
+    public static string SimilarModels(string model, IReadOnlyList<string> available)
+    {
+        var tail = model.Split('/').Last();
+        if (tail.Length < 3) return "";
+        var matches = available.Where(id => id.Contains(tail, StringComparison.OrdinalIgnoreCase)).Take(5).ToList();
+        return matches.Count == 0
+            ? $" O provedor lista {available.Count} modelos, e nenhum parece com \"{model}\"."
+            : " Nomes parecidos que o provedor oferece: " + string.Join(", ", matches) + ".";
+    }
+
+    /// <summary>Teste de ponta a ponta (chave, endereço e modelo): um pedido mínimo. Nunca lança por falha do provedor.</summary>
+    public async Task<(bool Ok, string Message)> TestAsync(string provider, string model, string? baseUrl, string apiKey, CancellationToken ct)
+    {
+        try
+        {
+            await GenerateAsync(provider, model, baseUrl, apiKey,
+                "Reply with ONLY this JSON object: {\"sql\": \"SELECT 1\", \"notes\": \"\"}", "ping", ct);
+            return (true, "Funcionou: o provedor aceitou a chave e o modelo respondeu.");
+        }
+        catch (AiException ex) when (ex.Code == "bad_response")
+        {
+            // Chegou ao modelo e ele respondeu, só não no formato exato: a chave e o nome do modelo estão certos.
+            return (true, "O provedor aceitou a chave e o modelo respondeu, mas fora do formato esperado. Pode funcionar; tente gerar uma consulta.");
+        }
+        catch (AiException ex) { return (false, ex.Message); }
     }
 
     private static HttpRequestMessage BuildRequest(string provider, string model, string? baseUrl, string apiKey, string system, string user)

@@ -43,6 +43,17 @@ public sealed class AiSettingsStore(string path, IPasswordProtector protector)
         }
     }
 
+    /// <summary>Chave guardada de um provedor específico (para testar antes de trocar o provedor ativo).</summary>
+    public string? GetKey(string provider)
+    {
+        lock (_gate)
+        {
+            if (!Read().Entries.TryGetValue(provider, out var e) || string.IsNullOrEmpty(e.KeyProtected)) return null;
+            try { return protector.Unprotect(e.KeyProtected); }
+            catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or FormatException) { return null; }
+        }
+    }
+
     /// <param name="newKey">Texto da nova chave; nulo ou vazio mantém a atual deste provedor.</param>
     public AiSettingsInfo Save(string provider, string model, string? baseUrl, string? newKey, bool removeKey)
     {

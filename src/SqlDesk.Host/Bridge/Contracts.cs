@@ -154,6 +154,11 @@ public sealed record AiSettingsDto(string Provider, string Model, string? BaseUr
 /// <param name="BaseUrl">Só para o provedor "custom".</param>
 public sealed record AiSaveSettingsRequest(string Provider, string Model, string? BaseUrl, string? ApiKey, bool RemoveKey);
 
+/// <param name="ApiKey">Chave digitada na tela e ainda não salva; vazia usa a chave guardada do provedor.</param>
+public sealed record AiTestRequest(string Provider, string Model, string? BaseUrl, string? ApiKey);
+
+public sealed record AiTestResponse(bool Ok, string Message);
+
 public sealed record AiGenerateRequest(string TabId, Guid ConnectionId, string Prompt);
 
 /// <param name="ReadOnly">Decidido pela trava no backend. Falso: o SQL deve voltar ao usuário comentado.</param>

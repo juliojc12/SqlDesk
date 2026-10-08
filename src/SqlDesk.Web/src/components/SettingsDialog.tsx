@@ -20,7 +20,7 @@ const AI_PROVIDERS: AiProviderMeta[] = [
   { id: 'anthropic', label: 'Claude (Anthropic)', defaultModel: 'claude-haiku-5-5', needsKey: true },
   { id: 'openai', label: 'ChatGPT (OpenAI)', defaultModel: 'gpt-4o-mini', needsKey: true },
   { id: 'gemini', label: 'Gemini (Google)', defaultModel: 'gemini-2.0-flash', needsKey: true, hint: 'A chave gratuita sai no Google AI Studio.' },
-  { id: 'nvidia', label: 'NVIDIA (build.nvidia.com)', defaultModel: 'meta/llama-3.3-70b-instruct', needsKey: true, hint: 'Há modelos gratuitos: crie a chave (nvapi-…) em build.nvidia.com e copie o nome do modelo da página dele.' },
+  { id: 'nvidia', label: 'NVIDIA (build.nvidia.com)', defaultModel: 'meta/llama-3.3-70b-instruct', needsKey: true, hint: 'Há modelos gratuitos: crie a chave (nvapi-…) em build.nvidia.com. Use o nome do modelo como na página dele (ex.: nvidia/nemotron-3-super-120b-a12b); roteadores como o OmniRoute acrescentam um prefixo que aqui não vale.' },
   { id: 'groq', label: 'Groq', defaultModel: 'llama-3.3-70b-versatile', needsKey: true, hint: 'Tem plano gratuito (console.groq.com).' },
   { id: 'openrouter', label: 'OpenRouter', defaultModel: 'meta-llama/llama-3.3-70b-instruct:free', needsKey: true, hint: 'Modelos com final ":free" não têm custo (openrouter.ai).' },
   { id: 'cerebras', label: 'Cerebras', defaultModel: 'llama-3.3-70b', needsKey: true, hint: 'Tem plano gratuito (cloud.cerebras.ai). Confira o nome do modelo disponível na sua conta.' },
@@ -53,6 +53,8 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
   const [aiLoaded, setAiLoaded] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -81,6 +83,20 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
     setAiHasKey(saved?.hasKey ?? false)
     setAiKey('')
     setAiRemoveKey(false)
+    setTestResult(null)
+  }
+
+  /** Pedido mínimo ao provedor com a chave digitada (ou a guardada) e o modelo da tela, sem salvar nada. */
+  async function testAi() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      setTestResult(await invoke('ai.test', { provider: aiProvider, model: aiModel.trim(), baseUrl: meta.customUrl ? aiBaseUrl.trim() : null, apiKey: aiKey.trim() || null }))
+    } catch (e) {
+      setTestResult({ ok: false, message: e instanceof BridgeCallError ? e.detail.message : String(e) })
+    } finally {
+      setTesting(false)
+    }
   }
 
   const draft = normalize({ maxRows, commandTimeout: timeout, autoAlias, csvDelimiter: delimiter, aiEnabled: settings.aiEnabled })
@@ -174,7 +190,7 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
                 )}
                 <label className="block">
                   <span>Modelo</span>
-                  <input className={`${input} mt-1`} value={aiModel} onChange={(e) => setAiModel(e.target.value)} aria-label="Modelo de IA"
+                  <input className={`${input} mt-1`} value={aiModel} onChange={(e) => { setAiModel(e.target.value); setTestResult(null) }} aria-label="Modelo de IA"
                     placeholder={meta.defaultModel || 'nome do modelo'} spellCheck={false} />
                 </label>
                 <label className="block">
@@ -186,9 +202,19 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
                     value={aiKey}
                     aria-label="Chave de API"
                     placeholder={aiHasKey && !aiRemoveKey ? 'Chave salva (digite para trocar)' : meta.needsKey ? 'Cole a chave aqui' : 'Deixe em branco se não precisar'}
-                    onChange={(e) => { setAiKey(e.target.value); setAiRemoveKey(false) }}
+                    onChange={(e) => { setAiKey(e.target.value); setAiRemoveKey(false); setTestResult(null) }}
                   />
                 </label>
+                <div className="flex items-start gap-3">
+                  <button type="button" className={btnBase} disabled={testing || saving} onClick={() => void testAi()}>
+                    {testing ? 'Testando…' : 'Testar chave e modelo'}
+                  </button>
+                  {testResult && (
+                    <p role="status" className={`min-w-0 flex-1 rounded-md px-3 py-2 text-xs ${testResult.ok ? 'bg-green-200 text-green-950' : 'bg-red-200 text-red-950'}`}>
+                      {testResult.message}
+                    </p>
+                  )}
+                </div>
                 {aiHasKey && (
                   <label className="flex items-center gap-2 text-xs">
                     <input type="checkbox" checked={aiRemoveKey} onChange={(e) => { setAiRemoveKey(e.target.checked); if (e.target.checked) setAiKey('') }} />

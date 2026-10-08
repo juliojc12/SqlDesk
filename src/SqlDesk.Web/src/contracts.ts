@@ -205,6 +205,7 @@ export interface Requests {
   'ai.settings.get': { request: Record<string, never>; response: AiSettings }
   'ai.settings.save': { request: { provider: AiProviderId; model: string; baseUrl?: string | null; apiKey?: string | null; removeKey: boolean }; response: AiSettings }
   'ai.generate': { request: { tabId: string; connectionId: string; prompt: string }; response: AiGenerateResponse }
+  'ai.test': { request: { provider: AiProviderId; model: string; baseUrl?: string | null; apiKey?: string | null }; response: { ok: boolean; message: string } }
   'ai.cancel': { request: { tabId: string }; response: Record<string, never> }
   'window.forceClose': { request: Record<string, never>; response: Record<string, never> }
   'session.load': { request: Record<string, never>; response: { state?: string | null } }

@@ -78,6 +78,30 @@ public sealed class AiGenerateHandler(AiService ai, AiRegistry registry) : Messa
     }
 }
 
+/// <summary>Testa chave, endereço e modelo com um pedido mínimo, sem salvar nada.</summary>
+public sealed class AiTestHandler(AiSettingsStore store, AiClient client) : MessageHandler<AiTestRequest, AiTestResponse>
+{
+    public override string Type => "ai.test";
+
+    protected override async Task<AiTestResponse> HandleAsync(AiTestRequest r, CancellationToken ct)
+    {
+        var info = AiProviders.Find(r.Provider) ?? throw new BridgeException("validation", "Provedor de IA desconhecido.");
+        var model = r.Model.Trim().Length > 0 ? r.Model.Trim() : info.DefaultModel;
+        if (!AiClient.IsValidModel(model)) return new AiTestResponse(false, model.Length == 0 ? "Informe o nome do modelo." : "Nome de modelo inválido.");
+        string? url = null;
+        if (info.Id == AiProviders.Custom)
+        {
+            url = AiProviders.ResolveBaseUrl(info, r.BaseUrl);
+            if (url is null) return new AiTestResponse(false, "Informe o endereço da API (https://..., ou http:// só para a própria máquina).");
+        }
+        var key = !string.IsNullOrWhiteSpace(r.ApiKey) ? r.ApiKey.Trim() : store.GetKey(r.Provider);
+        if (key is null && info.RequiresKey) return new AiTestResponse(false, "Cole a chave de API para testar.");
+
+        var (ok, message) = await client.TestAsync(r.Provider, model, url, key ?? "", ct);
+        return new AiTestResponse(ok, message);
+    }
+}
+
 public sealed class AiCancelHandler(AiRegistry registry) : MessageHandler<TabIdRequest, EmptyResponse>
 {
     public override string Type => "ai.cancel";

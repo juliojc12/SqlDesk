@@ -57,7 +57,7 @@ public partial class App : Application
             typeof(MetadataRefreshHandler), typeof(MetadataGetHandler),
             typeof(ExportPickPathHandler), typeof(ExportLoadedHandler), typeof(ExportRerunHandler), typeof(ExportCancelHandler),
             typeof(OpenExportedFileHandler), typeof(ShowExportedFileHandler),
-            typeof(AiSettingsGetHandler), typeof(AiSettingsSaveHandler), typeof(AiGenerateHandler), typeof(AiCancelHandler),
+            typeof(AiSettingsGetHandler), typeof(AiSettingsSaveHandler), typeof(AiGenerateHandler), typeof(AiTestHandler), typeof(AiCancelHandler),
             typeof(SaveFileHandler), typeof(OpenFileHandler),
             typeof(MinimizeWindowHandler), typeof(ToggleMaximizeWindowHandler), typeof(CloseWindowHandler),
         })

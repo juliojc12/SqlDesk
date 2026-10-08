@@ -280,4 +280,81 @@ public class AiTests : IDisposable
         Assert.False(AiClient.IsValidModel("a/../b"));
         Assert.False(AiClient.IsValidModel("a/"));
     }
+
+    private sealed class RouterHandler(Func<HttpRequestMessage, HttpResponseMessage> route) : HttpMessageHandler
+    {
+        public List<string> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Requests.Add($"{request.Method} {request.RequestUri}");
+            return Task.FromResult(route(request));
+        }
+    }
+
+    private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
+        new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+
+    [Fact]
+    public async Task Modelo_nao_encontrado_em_provedor_compativel_sugere_nomes_parecidos_da_lista()
+    {
+        var h = new RouterHandler(r => r.Method == HttpMethod.Get
+            ? Json(HttpStatusCode.OK, "{\"data\":[{\"id\":\"meta/llama-3.3-70b-instruct\"},{\"id\":\"nvidia/nemotron-3-super-120b-a12b\"}]}")
+            : Json(HttpStatusCode.NotFound, "{}"));
+        var c = new AiClient(new HttpClient(h));
+        var ex = await Assert.ThrowsAsync<AiException>(() =>
+            c.GenerateAsync("nvidia", "nvidia/nvidia/nemotron-3-super-120b-a12b", null, "k", "s", "u", default));
+        Assert.Equal("not_found", ex.Code);
+        Assert.Contains("nvidia/nemotron-3-super-120b-a12b", ex.Message);
+        Assert.DoesNotContain("llama", ex.Message);
+        Assert.Contains("GET https://integrate.api.nvidia.com/v1/models", h.Requests);
+    }
+
+    [Fact]
+    public async Task Modelo_nao_encontrado_sem_lista_de_modelos_volta_a_mensagem_simples()
+    {
+        var h = new RouterHandler(_ => Json(HttpStatusCode.NotFound, "{}"));
+        var ex = await Assert.ThrowsAsync<AiException>(() =>
+            new AiClient(new HttpClient(h)).GenerateAsync("groq", "x-model", null, "k", "s", "u", default));
+        Assert.Equal("not_found", ex.Code);
+        Assert.StartsWith("Modelo não encontrado", ex.Message);
+    }
+
+    [Fact]
+    public void Sugestoes_ignoram_o_prefixo_e_limitam_a_cinco()
+    {
+        var many = Enumerable.Range(0, 20).Select(i => $"org{i}/modelo-x").ToList();
+        var text = AiClient.SimilarModels("a/b/modelo-x", many);
+        Assert.Equal(5, text.Split("org").Length - 1);
+        Assert.Contains("nenhum parece", AiClient.SimilarModels("zzzzz", ["a/b"]));
+    }
+
+    [Fact]
+    public async Task Teste_de_modelo_funciona_com_resposta_valida_e_relata_a_falha_sem_lancar()
+    {
+        var ok = new RouterHandler(_ => Json(HttpStatusCode.OK, "{\"choices\":[{\"message\":{\"content\":\"" + Inner + "\"}}]}"));
+        var (good, msg) = await new AiClient(new HttpClient(ok)).TestAsync("nvidia", "nvidia/nemotron-3-super-120b-a12b", null, "k", default);
+        Assert.True(good);
+        Assert.StartsWith("Funcionou", msg);
+
+        var denied = new RouterHandler(_ => Json(HttpStatusCode.Unauthorized, "{}"));
+        var (bad, msg2) = await new AiClient(new HttpClient(denied)).TestAsync("nvidia", "m", null, "k", default);
+        Assert.False(bad);
+        Assert.Contains("chave", msg2);
+
+        var odd = new RouterHandler(_ => Json(HttpStatusCode.OK, "{\"choices\":[{\"message\":{\"content\":\"olá\"}}]}"));
+        var (accepted, _) = await new AiClient(new HttpClient(odd)).TestAsync("nvidia", "m", null, "k", default);
+        Assert.True(accepted);
+    }
+
+    [Fact]
+    public void Chave_de_um_provedor_especifico_pode_ser_lida_sem_ativa_lo()
+    {
+        var store = new AiSettingsStore(Path.Combine(_dir, "ai.json"), new PlainProtector());
+        store.Save("nvidia", "", null, "nvapi-1", false);
+        store.Save(AiProviders.Gemini, "", null, null, false);
+        Assert.Null(store.GetKey());
+        Assert.Equal("nvapi-1", store.GetKey("nvidia"));
+        Assert.Null(store.GetKey("groq"));
+    }
 }
