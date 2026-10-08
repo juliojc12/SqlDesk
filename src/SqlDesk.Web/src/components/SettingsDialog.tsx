@@ -121,14 +121,14 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
   return (
     <Modal title="Configurações" onCancel={onCancel} width={520}>
       <form
-        className="p-5"
+        className="flex max-h-[90vh] flex-col p-5"
         onSubmit={(e) => {
           e.preventDefault()
           void submit()
         }}
       >
-        <h2 className="text-base font-semibold">Configurações</h2>
-        <div className="mt-4 space-y-4 text-sm">
+        <h2 className="shrink-0 text-base font-semibold">Configurações</h2>
+        <div className="thin-scroll mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2 text-sm">
           <label className="block">
             <span className="font-medium">Limite de linhas na grade</span>
             <input className={`${input} mt-1`} inputMode="numeric" value={maxRows} onChange={(e) => setMaxRows(e.target.value)} aria-label="Limite de linhas na grade" />
@@ -233,12 +233,12 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
         </div>
 
         {adjusted && (
-          <p role="note" className="mt-3 rounded-md bg-amber-500/20 px-3 py-2 text-sm">
+          <p role="note" className="mt-3 shrink-0 rounded-md bg-amber-500/20 px-3 py-2 text-sm">
             Valor fora da faixa ou inválido: será salvo como {draft.maxRows.toLocaleString('pt-BR')} linhas e {draft.commandTimeout} s.
           </p>
         )}
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-5 flex shrink-0 justify-end gap-2">
           <button type="button" className={btnBase} onClick={onCancel}>Cancelar</button>
           <button type="submit" className={btnPrimary} disabled={saving}>Salvar</button>
         </div>
