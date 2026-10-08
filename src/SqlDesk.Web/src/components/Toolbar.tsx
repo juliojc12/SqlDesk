@@ -38,12 +38,12 @@ export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onD
         disabled={!canRun}
         onClick={onRun}
         title={aiMode
-          ? 'Modo IA: gera o SQL a partir do pedido (seleção ou parágrafo sob o cursor) e NÃO executa (Ctrl+Enter)'
+          ? 'Modo IA: converte o pedido (seleção ou parágrafo sob o cursor) em uma consulta de leitura e a executa (Ctrl+Enter)'
           : 'Executar a seleção ou o statement sob o cursor (Ctrl+Enter). Ctrl+\\ abre o resultado em nova sub-aba'}
         style={{ backgroundColor: color, color: textOn(color) }}
         className="flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-4 text-[15px] font-medium disabled:opacity-50"
       >
-        <span className="icon">{aiMode ? '' : ''}</span> {aiBusy ? 'Gerando…' : aiMode ? 'Gerar SQL' : 'Executar'}
+        <span className="icon">{aiMode ? '' : ''}</span> {aiBusy ? 'Consultando…' : aiMode ? 'Consultar (IA)' : 'Executar'}
       </button>
       <button disabled={!canRun} onClick={onRunScript} title="Executar o script inteiro (F5)" className={ghost}>
         <span className="icon">&#xEA37;</span> Script
@@ -92,7 +92,7 @@ export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onD
       </button>
       <button
         className={`${ghost} ${aiMode ? 'bg-hover font-medium' : ''}`}
-        title="Modo IA: escreva o que quer consultar em português e o Ctrl+Enter gera o SQL (somente leitura, nunca executa sozinho)"
+        title="Modo IA: escreva o que quer consultar em português e o Ctrl+Enter converte em SQL e executa (só consultas de leitura; qualquer outra coisa nunca é executada)"
         aria-pressed={aiMode}
         onClick={onToggleAi}
       >

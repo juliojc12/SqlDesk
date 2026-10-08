@@ -265,8 +265,9 @@ export default function App() {
   }
 
   /**
-   * Modo IA: troca o pedido em linguagem natural (seleção ou parágrafo sob o cursor) pelo SQL gerado. Nunca executa: a trava
-   * de somente leitura está no backend e o SQL reprovado volta comentado.
+   * Modo IA: o pedido em linguagem natural (seleção ou parágrafo sob o cursor) vira SQL no backend e, se a trava de somente
+   * leitura aprovar, o SQL é EXECUTADO direto na aba, sem entrar no editor (o texto do pedido continua lá para ajustar e repetir).
+   * Reprovado na trava, nada roda: o SQL substitui o pedido, comentado, só para revisão.
    */
   async function generateSql() {
     const l = latest.current
@@ -274,6 +275,10 @@ export default function App() {
     if (!tab || l.modalOpen || aiBusyRef.current) return
     if (tab.connectionId === null) {
       setNotice('Escolha uma conexão para a aba antes de gerar uma consulta.')
+      return
+    }
+    if (tab.status !== 'connected') {
+      setNotice('Conecte a aba antes de consultar.')
       return
     }
     const snap = snapshotOf(tab.id)
@@ -286,11 +291,23 @@ export default function App() {
     setAiBusyTab(tab.id)
     try {
       const r = await invoke('ai.generate', { tabId: tab.id, connectionId: tab.connectionId, prompt: span.text })
-      const done = replaceRequest(tab.id, span.start, span.end, span.text, resultText(r.sql, r.readOnly, r.reason))
-      if (!done) setNotice('O texto mudou enquanto a IA respondia, então nada foi alterado. Gere de novo.')
-      else if (!r.readOnly) setNotice(`O SQL gerado não é somente leitura (${r.reason ?? 'reprovado na trava'}). Entrou comentado, só para você revisar; nada foi executado.`)
-      else if (r.notes) setNotice(`SQL gerado, não executado. ${r.notes}`)
-      else setNotice('SQL gerado, não executado. Desligue o modo IA e use Ctrl+Enter para rodar.')
+      if (r.readOnly) {
+        // Só executa na mesma aba de onde saiu o pedido (o usuário pode ter trocado de aba durante a resposta).
+        if (latest.current.activeTab?.id !== tab.id) {
+          setNotice('Você trocou de aba enquanto a IA respondia, então a consulta não foi executada. Peça de novo.')
+          return
+        }
+        if (r.notes) setNotice(r.notes)
+        // O SQL entra como texto completo selecionado: é também o que "Carregar todas" e a exportação reexecutam.
+        aiBusyRef.current = false
+        setAiBusyTab(null)
+        void execute('current', { snapshot: { text: r.sql, cursor: 0, selectionStart: 0, selectionEnd: r.sql.length } })
+        return
+      }
+      const done = replaceRequest(tab.id, span.start, span.end, span.text, resultText(r.sql, false, r.reason))
+      setNotice(done
+        ? `A consulta pedida não é somente leitura (${r.reason ?? 'reprovada na trava'}), então NADA foi executado. O SQL entrou comentado no lugar do pedido, só para você revisar.`
+        : 'O texto mudou enquanto a IA respondia, então nada foi alterado. Peça de novo.')
     } catch (e) {
       if (!(e instanceof BridgeCallError && e.detail.code === 'cancelled')) setNotice(msg(e))
     } finally {
@@ -495,7 +512,9 @@ export default function App() {
     updateResults(activeTab.id, (s) => ({ ...s, active: key }))
     // Clicar numa sub-aba de resultado destaca no editor o trecho que a gerou.
     const set = getResults(activeTab.id).sets.find((s) => s.key === key)
-    if (set) highlightRange(activeTab.id, set.source, { reveal: true })
+    // Só destaca se o editor ainda tem esse trecho (editado depois, ou consulta gerada pela IA que nunca esteve no editor, não casa).
+    const doc = snapshotOf(activeTab.id)?.text
+    if (set && doc?.substr(set.source.start, set.source.length) === set.sourceText) highlightRange(activeTab.id, set.source, { reveal: true })
   }
 
   // ---------- Exportação ----------

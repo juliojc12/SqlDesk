@@ -224,7 +224,7 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
                 <p className="text-xs text-muted">
                   A chave fica protegida no seu usuário do Windows e só o app a lê. Ao gerar uma consulta, o pedido e os nomes das tabelas, colunas e tipos
                   do banco são enviados ao provedor escolhido (nos planos gratuitos, alguns provedores podem usar esses textos para treinar modelos); o conteúdo das linhas nunca é enviado. O SQL gerado só é aceito se for uma consulta de
-                  leitura e nunca é executado sozinho.
+                  leitura e é executado direto, sem aparecer no editor; qualquer outra coisa (alterar dados ou estrutura) nunca é executada.
                 </p>
               </>
             )}
