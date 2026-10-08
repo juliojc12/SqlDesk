@@ -52,6 +52,8 @@ export interface TabResults {
   startedAt: number | null
   sets: ResultSet[]
   messages: ResultMessage[]
+  /** Texto informativo (pergunta e SQL da IA) que entra nas mensagens assim que a execução começa, depois de limpar as antigas. */
+  intro: string | null
   /** Numeração de "Resultado N". */
   counter: number
   nextMessageId: number
@@ -68,6 +70,7 @@ export const emptyResults: TabResults = {
   startedAt: null,
   sets: [],
   messages: [],
+  intro: null,
   counter: 0,
   nextMessageId: 1,
   active: MESSAGES_TAB,
@@ -82,8 +85,13 @@ export type ResultEvent =
   | { type: 'message'; payload: QueryMessageEvent }
 
 /** Marca o início do pedido de execução. Os resultados antigos só são trocados quando o backend confirma (`started`). */
-export function beginRun(prev: TabResults, executionId: string, runText: string, keepPrevious: boolean, now = Date.now()): TabResults {
-  return { ...prev, executionId, running: true, runText, keepPrevious, startedAt: now }
+export function beginRun(prev: TabResults, executionId: string, runText: string, keepPrevious: boolean, intro: string | null = null, now = Date.now()): TabResults {
+  return { ...prev, executionId, running: true, runText, keepPrevious, startedAt: now, intro }
+}
+
+/** Passa o texto introdutório (se ainda pendente) para as mensagens. */
+function withIntro(state: TabResults): TabResults {
+  return state.intro === null ? state : { ...addMessage(state, 'info', state.intro), intro: null }
 }
 
 const setKey = (executionId: string, index: number) => `${executionId}:${index}`
@@ -107,7 +115,7 @@ export function applyEvent(state: TabResults, ev: ResultEvent): TabResults {
 
   switch (ev.type) {
     case 'started':
-      return state.keepPrevious ? state : { ...state, sets: [], messages: [], counter: 0, active: MESSAGES_TAB }
+      return withIntro(state.keepPrevious ? state : { ...state, sets: [], messages: [], counter: 0, active: MESSAGES_TAB })
 
     case 'resultStarted': {
       const p = ev.payload
@@ -154,7 +162,7 @@ export function finishRun(state: TabResults, executionId: string, response: Exec
   const untouched = response.status === 'nothing' || response.status === 'needs_confirmation' || response.status === 'advise_transaction'
   const active = untouched || producedSets ? state.active : MESSAGES_TAB
   return {
-    ...state,
+    ...withIntro(state),
     running: false,
     active,
     lastRun: untouched ? state.lastRun : { status: response.status, elapsedMs: response.elapsedMs, totalRows: response.totalRows },
@@ -164,7 +172,7 @@ export function finishRun(state: TabResults, executionId: string, response: Exec
 /** A requisição falhou antes ou durante a execução (por exemplo, aba sem conexão). */
 export function failRun(state: TabResults, executionId: string, text: string): TabResults {
   if (state.executionId !== executionId) return state
-  return { ...addMessage(state, 'error', text), running: false, active: MESSAGES_TAB }
+  return { ...addMessage(withIntro(state), 'error', text), running: false, active: MESSAGES_TAB }
 }
 
 export function formatElapsed(ms: number): string {

@@ -133,7 +133,32 @@ describe('resultados', () => {
   })
 
   it('guarda quando a execução começou, para o contador do carregamento', () => {
-    expect(beginRun(emptyResults, 'e1', 'x', false, 1234).startedAt).toBe(1234)
+    expect(beginRun(emptyResults, 'e1', 'x', false, null, 1234).startedAt).toBe(1234)
     expect(emptyResults.startedAt).toBeNull()
+  })
+})
+
+describe('texto introdutório (pergunta e SQL da IA)', () => {
+  it('entra nas mensagens quando a execução começa, depois de limpar as antigas', () => {
+    let s = run(emptyResults, 'e0', 'velho', [started('e0'), { type: 'message', payload: { ...base, executionId: 'e0', kind: 'info', text: 'antiga' } }])
+    s = beginRun(s, 'e1', 'SELECT 1', false, 'Pergunta: x\n\nSQL gerado pela IA:\nSELECT 1')
+    expect(s.intro).not.toBeNull()
+    s = applyEvent(s, started('e1'))
+    expect(s.messages.map((m) => m.text)).toEqual(['Pergunta: x\n\nSQL gerado pela IA:\nSELECT 1'])
+    expect(s.intro).toBeNull()
+  })
+
+  it('com Ctrl+\ (mantém o anterior), acrescenta sem apagar', () => {
+    let s = run(emptyResults, 'e0', 'a', [started('e0'), { type: 'message', payload: { ...base, executionId: 'e0', kind: 'info', text: 'antiga' } }])
+    s = applyEvent(beginRun(s, 'e1', 'b', true, 'novo'), started('e1'))
+    expect(s.messages.map((m) => m.text)).toEqual(['antiga', 'novo'])
+  })
+
+  it('aparece mesmo se a execução falhar ou terminar sem começar, e não vaza para a próxima', () => {
+    const failed = failRun(beginRun(emptyResults, 'e1', 'x', false, 'intro'), 'e1', 'sem conexão')
+    expect(failed.messages.map((m) => m.text)).toEqual(['intro', 'sem conexão'])
+    const refused = finishRun(beginRun(emptyResults, 'e2', 'x', false, 'intro'), 'e2', { status: 'refused', elapsedMs: 0, totalRows: 0 })
+    expect(refused.messages.map((m) => m.text)).toEqual(['intro'])
+    expect(beginRun(refused, 'e3', 'y', false).intro).toBeNull()
   })
 })

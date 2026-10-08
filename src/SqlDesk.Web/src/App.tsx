@@ -67,6 +67,8 @@ interface RunOpts {
   noRowLimit?: boolean
   confirmDangerous?: boolean
   skipTranAdvice?: boolean
+  /** Modo IA: pergunta e SQL gerado, mostrados nas mensagens da execução (e mantidos se a execução pedir confirmação). */
+  aiIntro?: string
   /** A chamada vem de um diálogo que acabou de fechar (o estado dele ainda não saiu do ref). */
   fromDialog?: boolean
 }
@@ -297,11 +299,17 @@ export default function App() {
           setNotice('Você trocou de aba enquanto a IA respondia, então a consulta não foi executada. Peça de novo.')
           return
         }
-        if (r.notes) setNotice(r.notes)
+        setNotice(r.notes ? `${r.notes} O SQL gerado está na aba Mensagens.` : 'Consulta gerada e executada. O SQL está na aba Mensagens.')
         // O SQL entra como texto completo selecionado: é também o que "Carregar todas" e a exportação reexecutam.
         aiBusyRef.current = false
         setAiBusyTab(null)
-        void execute('current', { snapshot: { text: r.sql, cursor: 0, selectionStart: 0, selectionEnd: r.sql.length } })
+        void execute('current', {
+          snapshot: { text: r.sql, cursor: 0, selectionStart: 0, selectionEnd: r.sql.length },
+          aiIntro: `Pergunta: ${span.text.trim()}
+
+SQL gerado pela IA:
+${r.sql}`,
+        })
         return
       }
       const done = replaceRequest(tab.id, span.start, span.end, span.text, resultText(r.sql, false, r.reason))
@@ -426,7 +434,7 @@ export default function App() {
     setAdvice(null)
     const snap = opts.snapshot ?? snapshotOf(tab.id) ?? { text: tab.text, cursor: 0, selectionStart: 0, selectionEnd: 0 }
     const executionId = crypto.randomUUID()
-    updateResults(tab.id, (s) => beginRun(s, executionId, snap.text, opts.newSubTab ?? false))
+    updateResults(tab.id, (s) => beginRun(s, executionId, snap.text, opts.newSubTab ?? false, opts.aiIntro ?? null))
     try {
       const r = await invoke('query.execute', {
         tabId: tab.id, executionId, ...snap, mode,
