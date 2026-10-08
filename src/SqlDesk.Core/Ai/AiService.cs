@@ -12,15 +12,16 @@ public sealed class AiService(AiSettingsStore settings, ConnectionStore connecti
     {
         if (string.IsNullOrWhiteSpace(request)) throw new AiException("empty", "Escreva o que você quer consultar.");
 
-        var info = settings.Get();
+        var (providerId, model, baseUrl) = settings.Active();
         var key = settings.GetKey();
-        if (key is null) throw new AiException("no_key", "Cadastre a chave de API em Configurações → Consulta com IA.");
+        if (key is null && AiProviders.Get(providerId).RequiresKey)
+            throw new AiException("no_key", "Cadastre a chave de API em Configurações → Consulta com IA.");
 
         var conn = connections.Get(connectionId) ?? throw new AiException("no_connection", "Conexão não encontrada.");
         var provider = ProviderRegistry.For(conn.Settings);
 
         var suggestion = await client.GenerateAsync(
-            info.Provider, info.Model, key,
+            providerId, model, baseUrl, key ?? "",
             PromptBuilder.System(provider.Id),
             PromptBuilder.User(provider.Id, metadata.Get(connectionId), request), ct);
 

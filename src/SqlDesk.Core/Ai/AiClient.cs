@@ -13,16 +13,22 @@ namespace SqlDesk.Core.Ai;
 /// </summary>
 public sealed partial class AiClient(HttpClient http)
 {
-    public static bool IsValidModel(string model) => model.Length is > 0 and <= 100 && ModelPattern().IsMatch(model);
+    public static bool IsValidModel(string model) =>
+        model.Length is > 0 and <= 100 && ModelPattern().IsMatch(model) && !model.Contains("..") && !model.EndsWith('/');
 
-    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._:\-]*$")]
+    [GeneratedRegex(@"<think>.*?</think>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex ThinkBlock();
+
+    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._:/\-]*$")]
     private static partial Regex ModelPattern();
 
-    public async Task<AiSuggestion> GenerateAsync(string provider, string model, string apiKey, string system, string user, CancellationToken ct)
+    /// <param name="baseUrl">Só para provedores compatíveis com a OpenAI (o "custom" informa o seu).</param>
+    /// <param name="apiKey">Pode ser vazia em provedores que dispensam chave (modelo local).</param>
+    public async Task<AiSuggestion> GenerateAsync(string provider, string model, string? baseUrl, string apiKey, string system, string user, CancellationToken ct)
     {
         if (!IsValidModel(model)) throw new AiException("bad_model", "Nome de modelo inválido nas configurações.");
 
-        using var request = BuildRequest(provider, model, apiKey, system, user);
+        using var request = BuildRequest(provider, model, baseUrl, apiKey, system, user);
         HttpResponseMessage response;
         try
         {
@@ -38,16 +44,34 @@ public sealed partial class AiClient(HttpClient http)
             string body;
             try { body = await response.Content.ReadAsStringAsync(ct); }
             catch (HttpRequestException) { throw new AiException("network", "A conexão com o provedor de IA caiu antes do fim da resposta."); }
-            return ParseSuggestion(ExtractText(provider, body));
+            return ParseSuggestion(ExtractText(AiProviders.Get(provider).Kind, body));
         }
     }
 
-    private static HttpRequestMessage BuildRequest(string provider, string model, string apiKey, string system, string user)
+    private static HttpRequestMessage BuildRequest(string provider, string model, string? baseUrl, string apiKey, string system, string user)
     {
+        var info = AiProviders.Get(provider);
         HttpRequestMessage req;
-        switch (provider)
+        switch (info.Kind)
         {
-            case AiProviders.OpenAi:
+            case AiKind.Compatible:
+            {
+                var root = AiProviders.ResolveBaseUrl(info, baseUrl)
+                    ?? throw new AiException("bad_url", "Endereço da API inválido nas configurações.");
+                req = new HttpRequestMessage(HttpMethod.Post, root + "/chat/completions");
+                if (apiKey.Length > 0) req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + apiKey);
+                // Sem response_format: nem todo servidor compatível aceita; o prompt já exige JSON e a leitura tolera cercas.
+                req.Content = Json(new JsonObject
+                {
+                    ["model"] = model,
+                    ["temperature"] = 0,
+                    ["messages"] = new JsonArray(
+                        new JsonObject { ["role"] = "system", ["content"] = system },
+                        new JsonObject { ["role"] = "user", ["content"] = user }),
+                });
+                break;
+            }
+            case AiKind.OpenAi:
                 req = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions");
                 req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + apiKey);
                 req.Content = Json(new JsonObject
@@ -59,7 +83,7 @@ public sealed partial class AiClient(HttpClient http)
                         new JsonObject { ["role"] = "user", ["content"] = user }),
                 });
                 break;
-            case AiProviders.Anthropic:
+            case AiKind.Anthropic:
                 req = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");
                 req.Headers.TryAddWithoutValidation("x-api-key", apiKey);
                 req.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
@@ -71,7 +95,7 @@ public sealed partial class AiClient(HttpClient http)
                     ["messages"] = new JsonArray(new JsonObject { ["role"] = "user", ["content"] = user }),
                 });
                 break;
-            case AiProviders.Gemini:
+            case AiKind.Gemini:
                 req = new HttpRequestMessage(HttpMethod.Post,
                     $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(model)}:generateContent");
                 req.Headers.TryAddWithoutValidation("x-goog-api-key", apiKey);
@@ -104,16 +128,16 @@ public sealed partial class AiClient(HttpClient http)
         _ => new AiException("http", $"O provedor de IA respondeu com erro {(int)status}."),
     };
 
-    private static string ExtractText(string provider, string body)
+    private static string ExtractText(AiKind kind, string body)
     {
         try
         {
             using var doc = JsonDocument.Parse(body);
             var root = doc.RootElement;
-            var text = provider switch
+            var text = kind switch
             {
-                AiProviders.OpenAi => root.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString(),
-                AiProviders.Anthropic => root.GetProperty("content").EnumerateArray()
+                AiKind.OpenAi or AiKind.Compatible => root.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString(),
+                AiKind.Anthropic => root.GetProperty("content").EnumerateArray()
                     .Where(p => p.TryGetProperty("type", out var t) && t.GetString() == "text")
                     .Select(p => p.GetProperty("text").GetString()).FirstOrDefault(),
                 _ => root.GetProperty("candidates")[0].GetProperty("content").GetProperty("parts")[0].GetProperty("text").GetString(),
@@ -127,6 +151,8 @@ public sealed partial class AiClient(HttpClient http)
     /// <summary>Lê <c>{"sql": "...", "notes": "..."}</c>, tolerando cercas de código (```json) em volta.</summary>
     public static AiSuggestion ParseSuggestion(string text)
     {
+        // Modelos que "pensam em voz alta" (DeepSeek, Qwen...) devolvem o raciocínio entre <think> antes da resposta.
+        text = ThinkBlock().Replace(text, "");
         var start = text.IndexOf('{');
         var end = text.LastIndexOf('}');
         if (start >= 0 && end > start)

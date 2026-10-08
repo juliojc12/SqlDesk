@@ -146,11 +146,13 @@ public sealed record PathRequest(string Path);
 public sealed record WindowStateEvent(bool Maximized);
 
 // ---- Consulta com IA ----
-/// <param name="Provider">openai | anthropic | gemini</param>
-public sealed record AiSettingsDto(string Provider, string Model, bool HasKey);
+/// <param name="Provider">anthropic | openai | gemini | nvidia | groq | openrouter | cerebras | mistral | ollama | custom</param>
+/// <param name="Entries">Configuração guardada de cada provedor já usado, para trocar de provedor na tela sem perder o que foi digitado.</param>
+public sealed record AiSettingsDto(string Provider, string Model, string? BaseUrl, bool HasKey, IReadOnlyList<SqlDesk.Core.Ai.AiProviderEntry> Entries);
 
 /// <param name="ApiKey">Nova chave; nula ou vazia mantém a atual. Nunca volta ao frontend.</param>
-public sealed record AiSaveSettingsRequest(string Provider, string Model, string? ApiKey, bool RemoveKey);
+/// <param name="BaseUrl">Só para o provedor "custom".</param>
+public sealed record AiSaveSettingsRequest(string Provider, string Model, string? BaseUrl, string? ApiKey, bool RemoveKey);
 
 public sealed record AiGenerateRequest(string TabId, Guid ConnectionId, string Prompt);
 

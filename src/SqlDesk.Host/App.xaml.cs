@@ -37,7 +37,7 @@ public partial class App : Application
         });
         sc.AddSingleton(new SessionStateStore(SessionStateStore.DefaultPath));
         sc.AddSingleton(sp => new SqlDesk.Core.Ai.AiSettingsStore(SqlDesk.Core.Ai.AiSettingsStore.DefaultPath, new DpapiPasswordProtector("SqlDesk.ai.v1")));
-        sc.AddSingleton(new SqlDesk.Core.Ai.AiClient(new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(60) }));
+        sc.AddSingleton(new SqlDesk.Core.Ai.AiClient(new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(60) }));
         sc.AddSingleton<SqlDesk.Core.Ai.AiService>();
         sc.AddSingleton<AiRegistry>();
         sc.AddSingleton<WindowController>();

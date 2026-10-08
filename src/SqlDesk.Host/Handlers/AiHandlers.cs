@@ -12,7 +12,7 @@ public sealed class AiSettingsGetHandler(AiSettingsStore store) : MessageHandler
     protected override Task<AiSettingsDto> HandleAsync(EmptyRequest r, CancellationToken ct)
     {
         var s = store.Get();
-        return Task.FromResult(new AiSettingsDto(s.Provider, s.Model, s.HasKey));
+        return Task.FromResult(new AiSettingsDto(s.Provider, s.Model, s.BaseUrl, s.HasKey, s.Entries));
     }
 }
 
@@ -23,8 +23,8 @@ public sealed class AiSettingsSaveHandler(AiSettingsStore store) : MessageHandle
     protected override Task<AiSettingsDto> HandleAsync(AiSaveSettingsRequest r, CancellationToken ct) =>
         Guard.Run(() =>
         {
-            var s = store.Save(r.Provider, r.Model, r.ApiKey, r.RemoveKey);
-            return new AiSettingsDto(s.Provider, s.Model, s.HasKey);
+            var s = store.Save(r.Provider, r.Model, r.BaseUrl, r.ApiKey, r.RemoveKey);
+            return new AiSettingsDto(s.Provider, s.Model, s.BaseUrl, s.HasKey, s.Entries);
         });
 }
 

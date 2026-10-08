@@ -147,10 +147,13 @@ export interface QueryRowsEvent { tabId: string; executionId: string; resultInde
 export interface QueryResultCompletedEvent { tabId: string; executionId: string; resultIndex: number; rowCount: number; truncated: boolean }
 export interface QueryMessageEvent { tabId: string; executionId: string; kind: MessageKind; text: string; line?: number }
 
-export type AiProviderId = 'openai' | 'anthropic' | 'gemini'
+export type AiProviderId = 'anthropic' | 'openai' | 'gemini' | 'nvidia' | 'groq' | 'openrouter' | 'cerebras' | 'mistral' | 'ollama' | 'custom'
 
 /** A chave de API nunca chega ao frontend: só `hasKey`. */
-export interface AiSettings { provider: AiProviderId; model: string; hasKey: boolean }
+export interface AiProviderEntry { provider: AiProviderId; model: string; baseUrl?: string | null; hasKey: boolean }
+
+/** Provedor ativo + a configuração guardada de cada provedor já usado (a chave de cada um é separada). */
+export interface AiSettings { provider: AiProviderId; model: string; baseUrl?: string | null; hasKey: boolean; entries: AiProviderEntry[] }
 
 /** `readOnly` é decidido pela trava do backend. Falso: o SQL deve entrar no editor comentado. */
 export interface AiGenerateResponse { sql: string; notes?: string | null; readOnly: boolean; reason?: string | null }
@@ -200,7 +203,7 @@ export interface Requests {
   'export.openFile': { request: { path: string }; response: Record<string, never> }
   'export.showInFolder': { request: { path: string }; response: Record<string, never> }
   'ai.settings.get': { request: Record<string, never>; response: AiSettings }
-  'ai.settings.save': { request: { provider: AiProviderId; model: string; apiKey?: string | null; removeKey: boolean }; response: AiSettings }
+  'ai.settings.save': { request: { provider: AiProviderId; model: string; baseUrl?: string | null; apiKey?: string | null; removeKey: boolean }; response: AiSettings }
   'ai.generate': { request: { tabId: string; connectionId: string; prompt: string }; response: AiGenerateResponse }
   'ai.cancel': { request: { tabId: string }; response: Record<string, never> }
   'window.forceClose': { request: Record<string, never>; response: Record<string, never> }

@@ -1,13 +1,32 @@
 import { useEffect, useState } from 'react'
 import { BridgeCallError, invoke } from '../bridge'
-import type { AiProviderId } from '../contracts'
+import type { AiProviderEntry, AiProviderId } from '../contracts'
 import { DEFAULT_SETTINGS, MAX_ROWS, MAX_TIMEOUT, MIN_ROWS, normalize, type AppSettings } from '../settings'
 import { btnBase, btnPrimary, Modal } from './Modal'
 
-const AI_PROVIDERS: { id: AiProviderId; label: string; defaultModel: string }[] = [
-  { id: 'anthropic', label: 'Claude (Anthropic)', defaultModel: 'claude-haiku-5-5' },
-  { id: 'openai', label: 'ChatGPT (OpenAI)', defaultModel: 'gpt-4o-mini' },
-  { id: 'gemini', label: 'Gemini (Google)', defaultModel: 'gemini-2.0-flash' },
+interface AiProviderMeta {
+  id: AiProviderId
+  label: string
+  defaultModel: string
+  /** Falso: modelo local, a chave é opcional. */
+  needsKey: boolean
+  /** O usuário informa o endereço da API. */
+  customUrl?: boolean
+  /** Onde conseguir a chave. */
+  hint?: string
+}
+
+const AI_PROVIDERS: AiProviderMeta[] = [
+  { id: 'anthropic', label: 'Claude (Anthropic)', defaultModel: 'claude-haiku-5-5', needsKey: true },
+  { id: 'openai', label: 'ChatGPT (OpenAI)', defaultModel: 'gpt-4o-mini', needsKey: true },
+  { id: 'gemini', label: 'Gemini (Google)', defaultModel: 'gemini-2.0-flash', needsKey: true, hint: 'A chave gratuita sai no Google AI Studio.' },
+  { id: 'nvidia', label: 'NVIDIA (build.nvidia.com)', defaultModel: 'meta/llama-3.3-70b-instruct', needsKey: true, hint: 'Há modelos gratuitos: crie a chave (nvapi-…) em build.nvidia.com e copie o nome do modelo da página dele.' },
+  { id: 'groq', label: 'Groq', defaultModel: 'llama-3.3-70b-versatile', needsKey: true, hint: 'Tem plano gratuito (console.groq.com).' },
+  { id: 'openrouter', label: 'OpenRouter', defaultModel: 'meta-llama/llama-3.3-70b-instruct:free', needsKey: true, hint: 'Modelos com final ":free" não têm custo (openrouter.ai).' },
+  { id: 'cerebras', label: 'Cerebras', defaultModel: 'llama-3.3-70b', needsKey: true, hint: 'Tem plano gratuito (cloud.cerebras.ai). Confira o nome do modelo disponível na sua conta.' },
+  { id: 'mistral', label: 'Mistral', defaultModel: 'mistral-small-latest', needsKey: true, hint: 'O plano gratuito pode usar seus dados para treinar modelos.' },
+  { id: 'ollama', label: 'Ollama (modelo local)', defaultModel: 'llama3.1', needsKey: false, hint: 'Roda na sua máquina, sem enviar nada para a internet. Sem chave.' },
+  { id: 'custom', label: 'Outro (compatível com OpenAI)', defaultModel: '', needsKey: false, customUrl: true, hint: 'Qualquer servidor com /chat/completions no formato da OpenAI.' },
 ]
 
 const input = 'w-full rounded-md border border-line bg-input px-2 py-1.5 text-sm'
@@ -26,6 +45,8 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
   // Consulta com IA: provedor, modelo e chave vivem no backend (a chave nunca volta para cá, só se existe).
   const [aiProvider, setAiProvider] = useState<AiProviderId>('anthropic')
   const [aiModel, setAiModel] = useState('')
+  const [aiBaseUrl, setAiBaseUrl] = useState('')
+  const [aiEntries, setAiEntries] = useState<AiProviderEntry[]>([])
   const [aiKey, setAiKey] = useState('')
   const [aiHasKey, setAiHasKey] = useState(false)
   const [aiRemoveKey, setAiRemoveKey] = useState(false)
@@ -38,14 +59,29 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
     invoke('ai.settings.get', {})
       .then((r) => {
         if (!alive) return
+        setAiEntries(r.entries)
         setAiProvider(r.provider)
         setAiModel(r.model)
+        setAiBaseUrl(r.baseUrl ?? '')
         setAiHasKey(r.hasKey)
         setAiLoaded(true)
       })
       .catch(() => alive && setAiLoaded(false))
     return () => { alive = false }
   }, [])
+
+  const meta = AI_PROVIDERS.find((p) => p.id === aiProvider) ?? AI_PROVIDERS[0]
+
+  /** Cada provedor guarda o seu modelo, endereço e chave: ao trocar, a tela mostra o que ele já tinha (ou o padrão). */
+  function selectProvider(next: AiProviderId) {
+    const saved = aiEntries.find((e) => e.provider === next)
+    setAiProvider(next)
+    setAiModel(saved?.model || AI_PROVIDERS.find((p) => p.id === next)!.defaultModel)
+    setAiBaseUrl(saved?.baseUrl ?? '')
+    setAiHasKey(saved?.hasKey ?? false)
+    setAiKey('')
+    setAiRemoveKey(false)
+  }
 
   const draft = normalize({ maxRows, commandTimeout: timeout, autoAlias, csvDelimiter: delimiter, aiEnabled: settings.aiEnabled })
 
@@ -54,7 +90,7 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
     if (aiLoaded) {
       setSaving(true)
       try {
-        await invoke('ai.settings.save', { provider: aiProvider, model: aiModel.trim(), apiKey: aiKey.trim() || null, removeKey: aiRemoveKey })
+        await invoke('ai.settings.save', { provider: aiProvider, model: aiModel.trim(), baseUrl: meta.customUrl ? aiBaseUrl.trim() : null, apiKey: aiKey.trim() || null, removeKey: aiRemoveKey })
       } catch (e) {
         setAiError(e instanceof BridgeCallError ? e.detail.message : String(e))
         setSaving(false)
@@ -122,30 +158,34 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
                     className={`${input} mt-1`}
                     value={aiProvider}
                     aria-label="Provedor de IA"
-                    onChange={(e) => {
-                      const next = e.target.value as AiProviderId
-                      // Trocar de provedor com o modelo padrão do anterior: acompanha o padrão do novo.
-                      if (AI_PROVIDERS.some((p) => p.id === aiProvider && p.defaultModel === aiModel)) setAiModel(AI_PROVIDERS.find((p) => p.id === next)!.defaultModel)
-                      setAiProvider(next)
-                    }}
+                    onChange={(e) => selectProvider(e.target.value as AiProviderId)}
                   >
                     {AI_PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
                   </select>
                 </label>
+                {meta.hint && <p className="text-xs text-muted">{meta.hint}</p>}
+                {meta.customUrl && (
+                  <label className="block">
+                    <span>Endereço da API</span>
+                    <input className={`${input} mt-1`} value={aiBaseUrl} onChange={(e) => setAiBaseUrl(e.target.value)} aria-label="Endereço da API"
+                      placeholder="https://servidor/v1" spellCheck={false} />
+                    <span className="mt-1 block text-xs text-muted">Só https (ou http na sua própria máquina). A chave e o pedido são enviados para este endereço.</span>
+                  </label>
+                )}
                 <label className="block">
                   <span>Modelo</span>
                   <input className={`${input} mt-1`} value={aiModel} onChange={(e) => setAiModel(e.target.value)} aria-label="Modelo de IA"
-                    placeholder={AI_PROVIDERS.find((p) => p.id === aiProvider)?.defaultModel} spellCheck={false} />
+                    placeholder={meta.defaultModel || 'nome do modelo'} spellCheck={false} />
                 </label>
                 <label className="block">
-                  <span>Chave de API</span>
+                  <span>Chave de API{meta.needsKey ? '' : ' (opcional)'}</span>
                   <input
                     className={`${input} mt-1`}
                     type="password"
                     autoComplete="off"
                     value={aiKey}
                     aria-label="Chave de API"
-                    placeholder={aiHasKey && !aiRemoveKey ? 'Chave salva (digite para trocar)' : 'Cole a chave aqui'}
+                    placeholder={aiHasKey && !aiRemoveKey ? 'Chave salva (digite para trocar)' : meta.needsKey ? 'Cole a chave aqui' : 'Deixe em branco se não precisar'}
                     onChange={(e) => { setAiKey(e.target.value); setAiRemoveKey(false) }}
                   />
                 </label>
@@ -157,7 +197,7 @@ export function SettingsDialog({ settings, onSave, onCancel }: {
                 )}
                 <p className="text-xs text-muted">
                   A chave fica protegida no seu usuário do Windows e só o app a lê. Ao gerar uma consulta, o pedido e os nomes das tabelas, colunas e tipos
-                  do banco são enviados ao provedor escolhido; o conteúdo das linhas nunca é enviado. O SQL gerado só é aceito se for uma consulta de
+                  do banco são enviados ao provedor escolhido (nos planos gratuitos, alguns provedores podem usar esses textos para treinar modelos); o conteúdo das linhas nunca é enviado. O SQL gerado só é aceito se for uma consulta de
                   leitura e nunca é executado sozinho.
                 </p>
               </>
