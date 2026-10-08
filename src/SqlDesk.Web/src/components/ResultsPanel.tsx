@@ -70,7 +70,8 @@ export function ResultsPanel({ results, color, onActivate, onJumpToLine, onLoadA
 
   const tabClass = (on: boolean) =>
     `-mb-px flex items-center gap-2 border-b-2 px-1 py-2 text-[15px] ${on ? 'text-fg' : 'border-transparent text-muted hover:text-fg'}`
-  const ghost = 'flex h-8 items-center gap-2 rounded-md px-2 text-sm text-fg disabled:opacity-40'
+  // Exportar: com borda e fundo, para parecer botão (e não texto solto ao lado das abas).
+  const exportBtn = 'flex h-8 items-center gap-2 rounded-md border border-line bg-hover px-3 text-sm font-medium text-fg enabled:hover:border-muted enabled:hover:bg-selected disabled:opacity-40'
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-surface" aria-label="Resultados">
@@ -104,10 +105,10 @@ export function ResultsPanel({ results, color, onActivate, onJumpToLine, onLoadA
           </button>
         </div>
         <div className="ml-auto flex shrink-0 gap-2">
-          <button disabled={!canExport} className={ghost} title={`Exportar o resultado ativo em CSV (separador ${getCsvDelimiter()}, em Configurações)`} onClick={() => active && onExport('csv', active, view.current ?? identityView(active.columns.length))}>
+          <button disabled={!canExport} className={exportBtn} title={`Exportar o resultado ativo em CSV (separador ${getCsvDelimiter()}, em Configurações)`} onClick={() => active && onExport('csv', active, view.current ?? identityView(active.columns.length))}>
             <span className="icon">&#xE896;</span> CSV
           </button>
-          <button disabled={!canExport} className={ghost} title="Exportar o resultado ativo em XLSX" onClick={() => active && onExport('xlsx', active, view.current ?? identityView(active.columns.length))}>
+          <button disabled={!canExport} className={exportBtn} title="Exportar o resultado ativo em XLSX" onClick={() => active && onExport('xlsx', active, view.current ?? identityView(active.columns.length))}>
             <span className="icon">&#xE896;</span> XLSX
           </button>
         </div>

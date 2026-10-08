@@ -1,4 +1,5 @@
 import { textOn } from '../colors'
+import { Toggle } from './Toggle'
 import type { ConnectionInfo } from '../contracts'
 import type { Tab } from '../tabsState'
 
@@ -82,22 +83,18 @@ export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onD
       <button className={ghost} title="Formatar o SQL: a seleção ou o texto todo (Shift+Alt+F)" onClick={onFormat}>
         Formatar
       </button>
-      <button
-        className={`${ghost} ${autoAlias ? 'bg-hover' : ''}`}
-        title="Alias automático ao aceitar uma tabela depois de FROM ou JOIN"
-        aria-pressed={autoAlias}
+      <Toggle
+        on={autoAlias}
+        label="Alias"
+        title={`Alias automático ao aceitar uma tabela depois de FROM ou JOIN (${autoAlias ? 'ligado' : 'desligado'})`}
         onClick={onToggleAlias}
-      >
-        Alias {autoAlias ? 'ligado' : 'desligado'}
-      </button>
-      <button
-        className={`${ghost} ${aiMode ? 'bg-hover font-medium' : ''}`}
-        title="Modo IA: escreva o que quer consultar em português e o Ctrl+Enter converte em SQL e executa (só consultas de leitura; qualquer outra coisa nunca é executada)"
-        aria-pressed={aiMode}
+      />
+      <Toggle
+        on={aiMode}
+        label="IA"
+        title={`Modo IA (${aiMode ? 'ligado' : 'desligado'}): escreva o que quer consultar em português e o Ctrl+Enter converte em SQL e executa (só consultas de leitura; qualquer outra coisa nunca é executada)`}
         onClick={onToggleAi}
-      >
-        IA {aiMode ? 'ligada' : 'desligada'}
-      </button>
+      />
 
       <div className="ml-auto flex min-w-0 items-center gap-3 text-[15px] text-muted">
         {tab.connectionId === null ? (
