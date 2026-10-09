@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deserialize, initialTabsState, isDirty, serialize, tabsReducer, type TabsState } from './tabsState'
+import { deserialize, initialTabsState, isDirty, retriesOnRun, serialize, tabsReducer, type TabsState } from './tabsState'
 
 const add = (s: TabsState, id: string, connectionId: string | null = 'c1', extra = {}) =>
   tabsReducer(s, { type: 'add', id, connectionId, ...extra })
@@ -128,5 +128,22 @@ describe('persistência', () => {
     const s = add(add(initialTabsState, 'a'), 'b')
     const json = JSON.stringify({ ...JSON.parse(serialize(s)), activeId: 'zzz' })
     expect(deserialize(json, new Set(['c1'])).activeId).toBe('a')
+  })
+})
+
+describe('retriesOnRun', () => {
+  const withStatus = (status: Parameters<typeof tabsReducer>[1] & { type: 'setStatus' }) => tabsReducer(add(initialTabsState, 'a'), status).tabs[0]
+
+  it('aba cuja conexão falhou tenta conectar de novo ao executar', () => {
+    expect(retriesOnRun(withStatus({ type: 'setStatus', id: 'a', status: 'error', message: 'servidor não encontrado' }))).toBe(true)
+  })
+
+  it('aba desconectada, conectando ou sem senha não reconecta sozinha', () => {
+    for (const status of ['idle', 'disconnected', 'connecting', 'needs-password'] as const)
+      expect(retriesOnRun(withStatus({ type: 'setStatus', id: 'a', status }))).toBe(false)
+  })
+
+  it('aba sem conexão escolhida não tem o que tentar', () => {
+    expect(retriesOnRun(add(initialTabsState, 'a', null).tabs[0])).toBe(false)
   })
 })

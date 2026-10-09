@@ -42,6 +42,12 @@ export type TabsAction =
 
 export const isDirty = (t: Tab) => t.text !== t.savedText
 
+/**
+ * A última tentativa de conectar falhou (ex.: VPN desligada): Executar tenta conectar de novo antes de rodar.
+ * Aba desconectada (pelo usuário ou por queda da conexão) não entra: reconectar ali é sempre uma ação explícita.
+ */
+export const retriesOnRun = (t: Tab) => t.status === 'error' && t.connectionId !== null
+
 export function tabsReducer(state: TabsState, a: TabsAction): TabsState {
   const patch = (id: string, p: Partial<Tab>): TabsState => ({
     ...state,

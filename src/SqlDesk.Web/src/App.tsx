@@ -32,7 +32,7 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { getAiEnabled, getAutoAlias, getCsvDelimiter, getMaxRows, loadSettings, saveSettings, type AppSettings } from './settings'
 import { beginRun, failRun, finishRun, type ResultSet } from './results'
 import { clearResults, getResults, listenToQueryEvents, updateResults, useTabResults } from './resultsStore'
-import { deserialize, initialTabsState, isDirty, serialize, tabsReducer, type Tab } from './tabsState'
+import { deserialize, initialTabsState, isDirty, retriesOnRun, serialize, tabsReducer, type Tab } from './tabsState'
 
 const msg = (e: unknown) => (e instanceof BridgeCallError ? e.detail.message : String(e))
 
@@ -279,10 +279,7 @@ export default function App() {
       setNotice('Escolha uma conexão para a aba antes de gerar uma consulta.')
       return
     }
-    if (tab.status !== 'connected') {
-      setNotice('Conecte a aba antes de consultar.')
-      return
-    }
+    if (tab.status !== 'connected' && !(await connectForRun(tab, 'consultar'))) return
     const snap = snapshotOf(tab.id)
     const span = snap && findRequest(snap.text, snap.cursor, snap.selectionStart, snap.selectionEnd)
     if (!span) {
@@ -344,6 +341,7 @@ ${r.sql}`,
       dispatch({ type: 'setStatus', id: tabId, status: 'connected', serverVersion: r.serverVersion })
       void ensureMetadata(connectionId)
       setPromptTabId((cur) => (cur === tabId ? null : cur))
+      return true
     } catch (e) {
       if (e instanceof BridgeCallError && e.detail.code === 'password_required') {
         dispatch({ type: 'setStatus', id: tabId, status: 'needs-password', message: 'Esta conexão não tem senha salva.' })
@@ -353,8 +351,20 @@ ${r.sql}`,
         dispatch({ type: 'setStatus', id: tabId, status: 'error', message: msg(e), certificateUntrusted: untrusted })
         setPromptTabId((cur) => (cur === tabId ? null : cur))
       }
+      return false
     }
   }, [])
+
+  /**
+   * Executar numa aba não conectada. Se a última tentativa de conectar falhou, tenta de novo e devolve true quando dá para
+   * seguir (conectou e o usuário continua na mesma aba); se falhar outra vez, o aviso da aba já mostra o motivo.
+   */
+  async function connectForRun(tab: Tab, verb: string) {
+    if (tab.status === 'connecting') setNotice('Aguarde a aba terminar de conectar.')
+    else if (!retriesOnRun(tab) || !tab.connectionId) setNotice(`Conecte a aba antes de ${verb}.`)
+    else return (await connectTab(tab.id, tab.connectionId)) && latest.current.activeTab?.id === tab.id
+    return false
+  }
 
   // Conecta a aba ativa ao ser exibida. Sem senha salva, nunca tenta sozinho (a menos que outra aba já a tenha informado).
   useEffect(() => {
@@ -427,10 +437,7 @@ ${r.sql}`,
     if (!tab || getResults(tab.id).running || (l.modalOpen && !opts.fromDialog)) return
     // Modo IA: Executar, Script, Ctrl+Enter e F5 geram o SQL em vez de rodar. Reexecuções internas (confirmações, "Carregar todas") passam.
     if (aiModeRef.current && !opts.fromDialog && !opts.snapshot && !opts.confirmDangerous && !opts.skipTranAdvice && !opts.noRowLimit) return void generateSql()
-    if (tab.status !== 'connected') {
-      setNotice('Conecte a aba antes de executar.')
-      return
-    }
+    if (tab.status !== 'connected' && !(await connectForRun(tab, 'executar'))) return
     setAdvice(null)
     const snap = opts.snapshot ?? snapshotOf(tab.id) ?? { text: tab.text, cursor: 0, selectionStart: 0, selectionEnd: 0 }
     const executionId = crypto.randomUUID()
@@ -856,6 +863,9 @@ ${r.sql}`,
               {(activeTab.status === 'error' || activeTab.status === 'no-connection') && activeTab.statusMessage && (
                 <div role="alert" className="flex items-center gap-4 border-b border-line bg-hover px-4 py-2 text-sm">
                   <p title={activeTab.statusMessage} className="min-w-0 flex-1 truncate">{activeTab.statusMessage}</p>
+                  {retriesOnRun(activeTab) && (
+                    <button className="shrink-0 font-medium underline" onClick={() => requestConnect(activeTab)}>Tentar de novo</button>
+                  )}
                   {activeTab.certificateUntrusted && (
                     <label className="flex shrink-0 cursor-pointer items-center gap-2 font-medium">
                       <input type="checkbox" checked={false} onChange={() => void trustCertificateAndReconnect(activeTab)} />

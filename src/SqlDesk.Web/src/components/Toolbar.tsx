@@ -1,7 +1,7 @@
 import { textOn } from '../colors'
 import { Toggle } from './Toggle'
 import type { ConnectionInfo } from '../contracts'
-import type { Tab } from '../tabsState'
+import { retriesOnRun, type Tab } from '../tabsState'
 
 interface Props {
   tab: Tab
@@ -32,7 +32,7 @@ const ghost = 'flex h-8 shrink-0 items-center gap-2 whitespace-nowrap rounded-md
 
 export function Toolbar({ tab, connection, color, onSave, onOpen, onConnect, onDisconnect, onPickConnection, running, onRun, onRunScript, onStop, tranCount, onBeginTran, autoAlias, onToggleAlias, metaLoading, onRefreshMetadata, onFormat, aiMode, aiBusy, onToggleAi }: Props) {
   const connected = tab.status === 'connected'
-  const canRun = connected && !running && !aiBusy
+  const canRun = (connected || retriesOnRun(tab)) && !running && !aiBusy
   return (
     <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-4">
       <button
