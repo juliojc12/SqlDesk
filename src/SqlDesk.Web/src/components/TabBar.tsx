@@ -31,7 +31,7 @@ export function TabBar({ tabs, activeId, connections, onActivate, onClose, onRen
   return (
     <div className="flex h-10 shrink-0 items-stretch border-b border-line bg-sidebar">
       <div role="tablist" aria-label="Abas de query" className="thin-scroll flex min-w-0 overflow-x-auto overflow-y-hidden">
-        {tabs.map((t) => {
+        {tabs.map((t, i) => {
           const color = connections.find((c) => c.id === t.connectionId)?.color ?? NEUTRAL_COLOR
           const active = t.id === activeId
           const dropTarget = dropAt === t.id
@@ -67,7 +67,7 @@ export function TabBar({ tabs, activeId, connections, onActivate, onClose, onRen
               onClick={() => onActivate(t.id)}
               onAuxClick={(e) => e.button === 1 && onClose(t.id)}
               onDoubleClick={() => setRenaming(t.id)}
-              title={t.filePath ?? t.title}
+              title={(t.filePath ?? t.title) + (i < 9 ? ` (Alt+${i + 1})` : '') + (i === tabs.length - 1 ? ' (Alt+0)' : '')}
               style={{
                 borderTopColor: color,
                 boxShadow: dropTarget ? 'inset 3px 0 0 var(--fg)' : undefined,

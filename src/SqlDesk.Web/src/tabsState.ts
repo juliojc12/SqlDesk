@@ -31,6 +31,8 @@ export type TabsAction =
   | { type: 'close'; id: string }
   | { type: 'activate'; id: string }
   | { type: 'cycle'; direction: 1 | -1 }
+  /** Ativa a aba pela posição na barra (0 = primeira); `-1` ativa a última. Posição inexistente não muda nada. */
+  | { type: 'activateIndex'; index: number }
   | { type: 'rename'; id: string; title: string }
   | { type: 'move'; id: string; toIndex: number }
   | { type: 'setText'; id: string; text: string }
@@ -84,6 +86,10 @@ export function tabsReducer(state: TabsState, a: TabsAction): TabsState {
       const i = state.tabs.findIndex((t) => t.id === state.activeId)
       const next = (i + a.direction + state.tabs.length) % state.tabs.length
       return { ...state, activeId: state.tabs[next].id }
+    }
+    case 'activateIndex': {
+      const t = a.index === -1 ? state.tabs[state.tabs.length - 1] : state.tabs[a.index]
+      return t && t.id !== state.activeId ? { ...state, activeId: t.id } : state
     }
     case 'move': {
       // Reordenar só muda a posição: a aba ativa, o texto e as conexões continuam como estão.

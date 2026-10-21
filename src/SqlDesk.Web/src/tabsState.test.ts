@@ -48,6 +48,26 @@ describe('tabsReducer', () => {
     expect(s.activeId).toBe('c')
   })
 
+  it('activateIndex ativa pela posição, -1 é a última e posição inexistente não muda nada', () => {
+    let s = add(add(add(initialTabsState, 'a'), 'b'), 'c') // ativa: c
+    s = tabsReducer(s, { type: 'activateIndex', index: 0 })
+    expect(s.activeId).toBe('a')
+    s = tabsReducer(s, { type: 'activateIndex', index: 1 })
+    expect(s.activeId).toBe('b')
+    s = tabsReducer(s, { type: 'activateIndex', index: -1 })
+    expect(s.activeId).toBe('c')
+    expect(tabsReducer(s, { type: 'activateIndex', index: 5 })).toBe(s)
+    expect(tabsReducer(s, { type: 'activateIndex', index: 2 })).toBe(s) // já ativa: mesmo objeto, sem re-render
+    expect(tabsReducer(initialTabsState, { type: 'activateIndex', index: -1 })).toBe(initialTabsState)
+  })
+
+  it('activateIndex segue a ordem depois de arrastar', () => {
+    let s = add(add(add(initialTabsState, 'a'), 'b'), 'c')
+    s = tabsReducer(s, { type: 'move', id: 'c', toIndex: 0 }) // c, a, b
+    expect(tabsReducer(s, { type: 'activateIndex', index: 0 }).activeId).toBe('c')
+    expect(tabsReducer(s, { type: 'activateIndex', index: -1 }).activeId).toBe('b')
+  })
+
   it('texto alterado marca a aba como suja; salvar limpa', () => {
     let s = add(initialTabsState, 'a')
     s = tabsReducer(s, { type: 'setText', id: 'a', text: 'SELECT 1' })

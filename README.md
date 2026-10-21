@@ -9,7 +9,7 @@ Cliente desktop leve para consultar bancos **SQL Server, MySQL e MariaDB**, só 
 ## Funcionalidades
 
 - **Várias conexões ao mesmo tempo**, com autenticação por usuário e senha, cada uma com a sua cor e o tipo do banco ao lado do nome. O diálogo de conexão tem o seletor **Tipo de servidor** (SQL Server, MySQL ou MariaDB). A senha é guardada criptografada (DPAPI) e nunca volta para a interface.
-- **Abas de query coloridas** pela conexão, com restauração das abas ao reabrir o app.
+- **Abas de query coloridas** pela conexão, com restauração das abas ao reabrir o app. `Alt+1` a `Alt+9` vão para a aba nessa posição e `Alt+0` para a última (como no VS Code); `Ctrl+Tab` e `Ctrl+Shift+Tab` passam para a próxima e a anterior.
 - **Editor Monaco** com autocomplete contextual (tabelas, colunas, schemas ou bancos, procedures) e alias automático de tabela.
 - **Formatação do SQL** (`Shift+Alt+F` ou botão Formatar): da seleção ou do texto todo, preservando comentários e textos entre aspas, e só aceita o resultado se o conteúdo do script não mudar.
 - **Execução como no DBeaver:** `Ctrl+Enter` executa a seleção ou o statement sob o cursor, `Ctrl+\` abre o resultado numa nova sub-aba, `F5` executa o script inteiro (com `GO`) e `Esc` cancela.

@@ -719,6 +719,13 @@ ${r.sql}`,
       if (e.key === 'F5' && !e.ctrlKey && !e.altKey) return run(() => void l.execute('script'))
       if (e.shiftKey && e.altKey && !e.ctrlKey && e.code === 'KeyF') return run(l.formatActive)
       if (e.key === 'Escape' && l.activeTab && (getResults(l.activeTab.id).running || aiBusyRef.current)) return run(l.stop)
+      // Troca de aba como no VS Code: Alt+1..Alt+9 vai para a aba nessa posição e Alt+0 para a última.
+      // Usa `e.code` (tecla física) para funcionar em qualquer layout; AltGr chega com ctrlKey e fica de fora.
+      // Com um diálogo de confirmação aberto não troca, para a decisão não ficar escondida atrás de outra aba.
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && /^Digit\d$/.test(e.code)) {
+        const n = Number(e.code.slice(5))
+        return run(() => !l.modalOpen && dispatch({ type: 'activateIndex', index: n === 0 ? -1 : n - 1 }))
+      }
 
       if (!e.ctrlKey || e.altKey) return
       const k = e.key.toLowerCase()
