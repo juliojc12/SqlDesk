@@ -726,6 +726,12 @@ ${r.sql}`,
         const n = Number(e.code.slice(5))
         return run(() => !l.modalOpen && dispatch({ type: 'activateIndex', index: n === 0 ? -1 : n - 1 }))
       }
+      // Alt+Seta esquerda/direita: aba vizinha (reaproveita o `cycle` do Ctrl+Tab, que dá a volta nas pontas).
+      // Também impede o Alt+Seta de virar "voltar/avançar" do navegador embutido.
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        const direction = e.key === 'ArrowRight' ? 1 : -1
+        return run(() => !l.modalOpen && dispatch({ type: 'cycle', direction }))
+      }
 
       if (!e.ctrlKey || e.altKey) return
       const k = e.key.toLowerCase()
